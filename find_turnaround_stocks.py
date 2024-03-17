@@ -18,6 +18,7 @@ def turning_around(data, long_window=200, short_window=20):
     new_data['Lower'] = data.rolling(window=long_window).mean(
     ) - data.rolling(window=long_window).std()
     new_data = pd.DataFrame(new_data)
+    new_data = new_data.dropna()
 
     data_short_term = new_data.iloc[-short_window:]
     rows_bullish = data_short_term[(
