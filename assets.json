@@ -346,5 +346,13 @@
     [
         "IBIT",
         "iShares Bitcoin Trust ETF"
+    ],
+    [
+        "IEF",
+        "iShares 7-10 Year Treasury Bond ETF"
+    ],
+    [
+        "TLT",
+        "iShares 20+ Year Treasury Bond ETF"
     ]
 ]
