@@ -13,6 +13,18 @@ import yfinance as yf
 #####################
 ### yahoo finance ###
 #####################
+def download_assets(start_date: str) -> pd.DataFrame:
+    start_date, end_date = period(start_date)
+    tickers = ticker("assets")
+    return download(tickers, start_date, end_date)
+
+
+def download_sectors(start_date: str) -> pd.DataFrame:
+    start_date, end_date = period(start_date)
+    tickers = ticker("sectors")
+    return download(tickers, start_date, end_date)
+
+
 def download(symbol, start_date, end_date) -> pd.DataFrame:
     stock_data = yf.download(symbol, start=start_date, end=end_date)
     return stock_data
@@ -103,10 +115,14 @@ def write_portfolio(
     data = {
         "expected_return": expected_r,
         "expected_volatility": expected_v,
-        "weights": [(tickers[i], weight[i], t2n[tickers[i]]) for i in range(weight)],
+        "weights": [(t, w, t2n[t]) for t, w in zip(tickers, weight)],
     }
 
-    json.dump(d, open(path_savefile, "w"))
+    json.dump(data, open(path_savefile, "w"), indent=4)
+
+
+def read_portfolio(path_portfolio: str = "portfolio.json"):
+    return json.load(open(path_portfolio))
 
 
 #################
@@ -182,19 +198,20 @@ def random_portfolio(
 
 
 def optimize_asset_portfolio(
-    start_date: str, key="Close", return_samples: bool = False
+    df: pd.DataFrame, key="Close", return_samples: bool = False
 ):
-    start_date, end_date = period(start_date)
-    tickers = ticker("assets")
-    df = download(tickers, start_date, end_date)
-
     pct_ch = percent_change(df, key)
     pct_ch_filted = filter_assets(pct_ch)
 
+    tickers = list(pct_ch_filted.columns)
     r = expected_return_from_pct_ch(pct_ch_filted)
     cov = cov_mat_from_pct_ch(pct_ch_filted)
+    assert all((pct_ch_filted[t].mean() - r[i]) < 1e-6 for i, t in enumerate(tickers))
+    assert all(
+        (pct_ch_filted[t].var() - cov[i, i]) < 1e-6 for i, t in enumerate(tickers)
+    )
 
-    random_w, random_r, random_v = random_portfolio(r, cov, 10_000)
+    random_w, random_r, random_v = random_portfolio(r, cov)
     random_sharpe = random_r / random_v
     index_opt = np.argmax(random_sharpe)
 
@@ -202,10 +219,21 @@ def optimize_asset_portfolio(
     optimal_v = random_v[index_opt]
     optimal_r = random_r[index_opt]
 
+    assert abs(optimal_w.T @ r - optimal_r) < 1e-6
+    assert abs(np.sqrt(optimal_w.T @ cov @ optimal_w) - optimal_v) < 1e-6
+
     if return_samples:
-        return optimal_w, optimal_r, optimal_v, random_r, random_v, random_sharpe
+        return (
+            tickers,
+            optimal_w,
+            optimal_r,
+            optimal_v,
+            random_r,
+            random_v,
+            random_sharpe,
+        )
     else:
-        return optimal_w, optimal_r, optimal_v
+        return tickers, optimal_w, optimal_r, optimal_v
 
 
 def optimality(returns: np.ndarray, volatilities: np.ndarray) -> np.ndarray:
@@ -216,6 +244,17 @@ def optimality(returns: np.ndarray, volatilities: np.ndarray) -> np.ndarray:
             covered[i] = False
 
     return covered
+
+
+def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
+    """
+    Args:
+        total_budget: dollars
+    Return:
+        list of money for each weight
+    """
+    pf = read_portfolio(path_portfolio)
+    return [e + [e[1] * total_budget] for e in pf["weights"]]
 
 
 ###############
@@ -318,22 +357,22 @@ def plot_kelly_2d(path_savefile="kelly_criterion.png") -> None:
     plt.savefig(path_savefile)
 
 
-def plot_return_by_sector(
-    start_date: str, path_savefile: str = "return_sector.png"
-) -> None:
-    start_date, end_date = period(start_date)
-
-    tickers = ticker("sectors")
-    t2n = {t: " ".join(n.split()[2:]) for t, n in ticker2name("sectors").items()}
-
-    df = download(tickers, start_date, end_date)
-    df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
-
+def plot_return(df: pd.DataFrame, path_savefile: str) -> None:
     df_return = yf_return(df)
     plt.close()
     df_return.plot(figsize=(16, 12))
 
     plt.savefig(path_savefile)
+
+
+def plot_return_by_sector(
+    start_date: str, path_savefile: str = "return_sector.png"
+) -> None:
+    df = download_sectors(start_date)
+    t2n = {t: " ".join(n.split()[2:]) for t, n in ticker2name("sectors").items()}
+    df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
+
+    plot_return(df, path_savefile)
 
 
 def plot_return_index(start_date: str, path_savefile: str = "return_index.png") -> None:
@@ -364,31 +403,42 @@ def plot_return_index(start_date: str, path_savefile: str = "return_index.png") 
         "Agriculutre",
         "Base Metals",
     ]
-    ticker2name = {t: n for t, n in zip(tickers, names)}
+    t2n = {t: n for t, n in zip(tickers, names)}
 
     df = download(tickers, start_date, end_date)
-    df.columns = pd.MultiIndex.from_tuples(
-        [(c1, ticker2name[c2]) for c1, c2 in df.columns]
-    )
+    df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
 
-    df_return = yf_return(df)
-    plt.close()
-    df_return.plot(figsize=(16, 12))
+    plot_return(df, path_savefile)
 
-    plt.savefig(path_savefile)
+
+def plot_return_portfolio(
+    start_date: str, path_savefile: str = "return_portfolio.png"
+) -> None:
+    pf = read_portfolio()
+    tickers = [e[0] for e in pf["weights"]]
+    t2n = {e[0]: e[2] for e in pf["weights"]}
+
+    start_date, end_date = period(start_date)
+    df = download(tickers, start_date, end_date)
+    df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
+
+    plot_return(df, path_savefile)
 
 
 def plot_portfolio(
     start_date: str, key="Close", path_savefile: str = "portfolio.png"
 ) -> None:
+    df = download_assets(start_date)
+
     (
+        tickers,
         weight,
         optimal_r,
         optimal_v,
         random_r,
         random_v,
         random_sharpe,
-    ) = optimize_asset_portfolio(start_date, key, return_samples=True)
+    ) = optimize_asset_portfolio(df, key, return_samples=True)
 
     df_random = pd.DataFrame(
         {
@@ -503,9 +553,7 @@ def plot_covariance(start_date: str, target: str = "assets"):
 
 
 def plot_return_measure(start_date: str, path_savefile: str = "return_measure.png"):
-    start_date, end_date = period(start_date)
-    tickers = ticker("sectors")
-    df = download(tickers, start_date, end_date)
+    df = download_sectors(start_date)
 
     x = np.array(percent_change(df))
     log_x_1 = np.log(x + 1)

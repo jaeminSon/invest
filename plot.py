@@ -15,4 +15,6 @@ if __name__ == "__main__":
     plot_portfolio(start_date="2024-01-01")
     plot_correlation(start_date="2024-01-01", target="sectors")
     plot_covariance(start_date="2024-01-01", target="sectors")
+    plot_correlation(start_date="2024-01-01", target="assets")
+    plot_covariance(start_date="2024-01-01", target="assets")
     plot_return_measure(start_date="2024-01-01")
