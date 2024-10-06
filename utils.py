@@ -267,22 +267,6 @@ def optimize_asset_portfolio(
     assert abs(optimal_w.T @ r - optimal_r) < 1e-6
     assert abs(np.sqrt(optimal_w.T @ cov @ optimal_w) - optimal_v) < 1e-6
 
-    # for i in range(3):
-    #     columns = [c for i, c in enumerate(pct_ch_filted.columns) if optimal_w[i] > 1./len(optimal_w)]
-    #     pct_ch_filted = pct_ch_filted[columns]
-
-    #     tickers, r, cov = compute_return_volatility(pct_ch_filted)
-
-    #     random_w, random_r, random_v = random_portfolio(r, cov)
-
-    #     random_sharpe = random_r / random_v
-    #     index_opt = np.argmax(random_sharpe)
-    #     optimal_w = random_w[index_opt]
-    #     optimal_v = random_v[index_opt]
-    #     optimal_r = random_r[index_opt]
-    #     assert abs(optimal_w.T @ r - optimal_r) < 1e-6
-    #     assert abs(np.sqrt(optimal_w.T @ cov @ optimal_w) - optimal_v) < 1e-6
-
     if return_samples:
         return (
             tickers,
