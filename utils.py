@@ -71,6 +71,22 @@ def period(
         return start_date, end_date
 
 
+def benchmark_return(benchmark: str, start_date: str, end_date: str) -> pd.Series:
+    benchmark_ticker = find_ticker(benchmark)
+    df_benchmark = download([benchmark_ticker], start_date, end_date)
+    return (df_benchmark["Close"].pct_change() + 1).cumprod().dropna()
+
+
+def portfolio_return(start_date: str, end_date: str) -> pd.Series:
+    portfolio = read_portfolio()
+    df = download_portfolio(start_date, end_date)
+
+    portfolio_pct_change = pd.Series(0, index=df["Close"].index, name="Close")
+    for ticker, weight, name in portfolio["weights"]:
+        portfolio_pct_change += df["Close"][ticker].pct_change() * weight
+    return (portfolio_pct_change + 1).cumprod().dropna()
+
+
 ###########
 ### I/O ###
 ###########
@@ -269,8 +285,11 @@ def compute_return_volatility(
     tickers = list(pct_ch.columns)
     r = expected_return_from_pct_ch(pct_ch)
     cov = cov_mat_from_pct_ch(pct_ch)
+
+    # check the order of columns
     assert all((pct_ch[t].mean() - r[i]) < 1e-6 for i, t in enumerate(tickers))
     assert all((pct_ch[t].var() - cov[i, i]) < 1e-6 for i, t in enumerate(tickers))
+
     return tickers, r, cov
 
 
@@ -331,7 +350,12 @@ def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
 ### Utility ###
 ###############
 def percent_change(yf_df: pd.DataFrame, key="Close", periods=1) -> pd.DataFrame:
-    return yf_df[key].pct_change(periods=periods).dropna()
+    return (
+        yf_df[key]
+        .pct_change(periods=periods, fill_method=None)
+        .dropna(axis=1, how="all")
+        .dropna(axis=0)
+    )
 
 
 def yf_return(yf_df: pd.DataFrame, key="Close") -> pd.DataFrame:
@@ -443,6 +467,18 @@ def plot_return_by_sector(
     df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
 
     plot_return(df, path_savefile)
+
+
+def plot_return_by_asset(
+    start_date: str, path_savefile: str = "return_asset.png"
+) -> None:
+    df = download_assets(start_date)
+
+    df_return = yf_return(df)
+
+    plt.close()
+    df_return.plot(figsize=(32, 24), legend=False)
+    plt.savefig(path_savefile)
 
 
 def plot_return_index(start_date: str, path_savefile: str = "return_index.png") -> None:
@@ -663,21 +699,73 @@ def plot_soaring_stocks(top_k=7):
 
 
 def plot_backtest(start_date: str, end_date: str, benchmark: str = "s&p") -> None:
-    portfolio = read_portfolio()
-    df = download_portfolio(start_date, end_date)
-
-    portfolio_pct_change = pd.Series(0, index=df["Close"].index, name="Close")
-    for ticker, weight, name in portfolio["weights"]:
-        portfolio_pct_change += df["Close"][ticker].pct_change() * weight
-    portfolio_returns = (portfolio_pct_change + 1).cumprod().dropna()
-
-    benchmark_ticker = find_ticker(benchmark)
-    df_benchmark = download([benchmark_ticker], start_date, end_date)
-    benchmark_returns = (df_benchmark["Close"].pct_change() + 1).cumprod().dropna()
+    portfolio_returns = portfolio_return(start_date, end_date)
+    benchmark_returns = benchmark_return(benchmark, start_date, end_date)
 
     plt.close()
     df_return = pd.DataFrame(
-        {"portfolio": portfolio_returns, benchmark_ticker: benchmark_returns}
+        {"portfolio": portfolio_returns, benchmark: benchmark_returns}
     )
     df_return.plot(figsize=(8, 6))
     plt.savefig("backtest.png")
+
+
+def plot_periodic_update_backtest(
+    start_date: str,
+    update_period: int,
+    benchmark: str = "s&p",
+    transaction_rate: float = 0.01,
+) -> None:
+    start_date, end_date = period(start_date)
+    start_date = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date = datetime.strptime(end_date, "%Y-%m-%d")
+
+    portfolio_returns, benchmark_returns = None, None
+    current_date = start_date
+    while current_date + timedelta(days=2 * update_period) <= end_date:
+        # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
+        test_s = datetime.strftime(
+            current_date + timedelta(days=update_period - 1), "%Y-%m-%d"
+        )
+        test_e = datetime.strftime(
+            current_date + timedelta(days=2 * update_period), "%Y-%m-%d"
+        )
+        opt_s = datetime.strftime(current_date, "%Y-%m-%d")
+        opt_e = test_s
+
+        generate_portfolio(
+            start_date=opt_s,
+            end_date=opt_e,
+        )
+
+        pf_r = portfolio_return(test_s, test_e)
+        bm_r = benchmark_return(benchmark, test_s, test_e)
+
+        if portfolio_returns is None:
+            portfolio_returns = pf_r
+        else:
+            portfolio_returns = pd.concat(
+                [
+                    portfolio_returns,
+                    pf_r * portfolio_returns.iloc[-1] * (1 - transaction_rate),
+                ]
+            )
+
+        if benchmark_returns is None:
+            benchmark_returns = bm_r
+        else:
+            benchmark_returns = pd.concat(
+                [
+                    benchmark_returns,
+                    bm_r * benchmark_returns.iloc[-1],
+                ]
+            )
+
+        current_date += timedelta(days=update_period)
+
+    plt.close()
+    df_return = pd.DataFrame(
+        {"portfolio": portfolio_returns, benchmark: benchmark_returns}
+    )
+    df_return.plot(figsize=(16, 8))
+    plt.savefig(f"backtest_update_{update_period}.png")
