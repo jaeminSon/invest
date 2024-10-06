@@ -1,4 +1,4 @@
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Iterable, Optional
 from datetime import datetime, timedelta
 import ssl
 import json
@@ -13,6 +13,12 @@ import yfinance as yf
 #####################
 ### yahoo finance ###
 #####################
+def download_SandP(start_date: str) -> pd.DataFrame:
+    start_date, end_date = period(start_date)
+    tickers = ticker("s&p500")
+    return download(tickers, start_date, end_date)
+
+
 def download_assets(start_date: str) -> pd.DataFrame:
     start_date, end_date = period(start_date)
     tickers = ticker("assets")
@@ -31,14 +37,14 @@ def download(symbol, start_date, end_date) -> pd.DataFrame:
 
 
 def period(
-    start_date: Optional[str] = None, history_days: Optional[str] = None
+    start_date: Optional[str] = None, date_back: Optional[str] = None
 ) -> Tuple[str, str]:
     assert not (
-        start_date and history_days
-    ), "Both start_date and history_days cannot be set at the same time."
-    if history_days:
+        start_date and date_back
+    ), "Both start_date and date_back cannot be set at the same time."
+    if date_back:
         now = datetime.now()
-        start_date = (now - timedelta(days=history_days)).strftime("%Y-%m-%d")
+        start_date = (now - timedelta(days=date_back)).strftime("%Y-%m-%d")
         end_date = now.strftime("%Y-%m-%d")
         return start_date, end_date
     elif start_date:
@@ -125,6 +131,41 @@ def read_portfolio(path_portfolio: str = "portfolio.json"):
     return json.load(open(path_portfolio))
 
 
+def update_tickers(stocks: Iterable[str]) -> None:
+    alread_included = [e.rstrip() for e in open("./watchlist.txt").readlines()]
+
+    with open("./watchlist.txt", "a") as f:
+        for stock in stocks:
+            if stock not in alread_included:
+                f.write(f"{stock}\n")
+
+
+#######################
+### stock selection ###
+#######################
+def select_stock(
+    yf_df: pd.DataFrame, window: int, top_k: int, key="Close"
+) -> List[str]:
+    pct_ch = (
+        yf_df[key][yf_df[key].columns]
+        .rolling(window=window)
+        .mean()
+        .pct_change(periods=window, fill_method=None)
+        .dropna(axis=1, how="all")
+    )
+
+    # sharpe is a series that maps ticker to Sharpe value
+    sharpe = ((pct_ch.iloc[-1] - pct_ch.mean()) / np.sqrt(pct_ch.var())).dropna()
+    sharpe.sort_values(ascending=False, inplace=True)
+
+    return list(sharpe.index[:top_k])
+
+
+def select_stock_varying_windows(yf_df: pd.DataFrame, top_k: int) -> List[str]:
+    windows = [3, 5, 10, 20]
+    return {w: select_stock(yf_df, w, top_k) for w in windows}
+
+
 #################
 ### portfolio ###
 #################
@@ -197,30 +238,50 @@ def random_portfolio(
     return weights, returns, volatilities
 
 
+def compute_return_volatility(
+    pct_ch: pd.DataFrame,
+) -> Tuple[List, np.ndarray, np.ndarray]:
+    tickers = list(pct_ch.columns)
+    r = expected_return_from_pct_ch(pct_ch)
+    cov = cov_mat_from_pct_ch(pct_ch)
+    assert all((pct_ch[t].mean() - r[i]) < 1e-6 for i, t in enumerate(tickers))
+    assert all((pct_ch[t].var() - cov[i, i]) < 1e-6 for i, t in enumerate(tickers))
+    return tickers, r, cov
+
+
 def optimize_asset_portfolio(
     df: pd.DataFrame, key="Close", return_samples: bool = False
 ):
     pct_ch = percent_change(df, key)
     pct_ch_filted = filter_assets(pct_ch)
 
-    tickers = list(pct_ch_filted.columns)
-    r = expected_return_from_pct_ch(pct_ch_filted)
-    cov = cov_mat_from_pct_ch(pct_ch_filted)
-    assert all((pct_ch_filted[t].mean() - r[i]) < 1e-6 for i, t in enumerate(tickers))
-    assert all(
-        (pct_ch_filted[t].var() - cov[i, i]) < 1e-6 for i, t in enumerate(tickers)
-    )
+    tickers, r, cov = compute_return_volatility(pct_ch_filted)
 
     random_w, random_r, random_v = random_portfolio(r, cov)
+
     random_sharpe = random_r / random_v
     index_opt = np.argmax(random_sharpe)
-
     optimal_w = random_w[index_opt]
     optimal_v = random_v[index_opt]
     optimal_r = random_r[index_opt]
-
     assert abs(optimal_w.T @ r - optimal_r) < 1e-6
     assert abs(np.sqrt(optimal_w.T @ cov @ optimal_w) - optimal_v) < 1e-6
+
+    # for i in range(3):
+    #     columns = [c for i, c in enumerate(pct_ch_filted.columns) if optimal_w[i] > 1./len(optimal_w)]
+    #     pct_ch_filted = pct_ch_filted[columns]
+
+    #     tickers, r, cov = compute_return_volatility(pct_ch_filted)
+
+    #     random_w, random_r, random_v = random_portfolio(r, cov)
+
+    #     random_sharpe = random_r / random_v
+    #     index_opt = np.argmax(random_sharpe)
+    #     optimal_w = random_w[index_opt]
+    #     optimal_v = random_v[index_opt]
+    #     optimal_r = random_r[index_opt]
+    #     assert abs(optimal_w.T @ r - optimal_r) < 1e-6
+    #     assert abs(np.sqrt(optimal_w.T @ cov @ optimal_w) - optimal_v) < 1e-6
 
     if return_samples:
         return (
@@ -260,8 +321,8 @@ def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
 ###############
 ### Utility ###
 ###############
-def percent_change(yf_df: pd.DataFrame, key="Close") -> pd.DataFrame:
-    return yf_df[key].pct_change().dropna()
+def percent_change(yf_df: pd.DataFrame, key="Close", periods=1) -> pd.DataFrame:
+    return yf_df[key].pct_change(periods=periods).dropna()
 
 
 def yf_return(yf_df: pd.DataFrame, key="Close") -> pd.DataFrame:
@@ -572,3 +633,22 @@ def plot_return_measure(start_date: str, path_savefile: str = "return_measure.pn
             axes[2 * i + 1, j].set_title(f"log(x+1) (sector {5 * i + j})")
 
     plt.savefig(f"measure_estimate.png")
+
+
+def plot_soaring_stocks(top_k=7):
+    start_date, end_date = period(date_back=365)
+    df = download_SandP(start_date)
+    # df = download_sectors(start_date)
+    window2stocks = select_stock_varying_windows(df, top_k)
+
+    update_tickers(set(sum(window2stocks.values(), [])))
+
+    for window in window2stocks:
+        plt.close()
+
+        pct_ch = df["Close"][window2stocks[window]].pct_change().dropna()
+        df_return = (pct_ch + 1).cumprod()
+
+        df_return.plot(figsize=(16, 12))
+
+        plt.savefig(f"SandP_{window}_days_best_{top_k}.png")
