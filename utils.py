@@ -13,22 +13,37 @@ import yfinance as yf
 #####################
 ### yahoo finance ###
 #####################
-def download_SandP(start_date: str) -> pd.DataFrame:
-    start_date, end_date = period(start_date)
+def download_SandP(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+    if end_date is None:
+        start_date, end_date = period(start_date)
     tickers = ticker("s&p500")
     return download(tickers, start_date, end_date)
 
 
-def download_assets(start_date: str) -> pd.DataFrame:
-    start_date, end_date = period(start_date)
+def download_assets(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+    if end_date is None:
+        start_date, end_date = period(start_date)
     tickers = ticker("assets")
     return download(tickers, start_date, end_date)
 
 
-def download_sectors(start_date: str) -> pd.DataFrame:
-    start_date, end_date = period(start_date)
+def download_sectors(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+    if end_date is None:
+        start_date, end_date = period(start_date)
     tickers = ticker("sectors")
     return download(tickers, start_date, end_date)
+
+
+def download_portfolio(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+    pf = read_portfolio()
+    tickers = [e[0] for e in pf["weights"]]
+
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    df = download(tickers, start_date, end_date)
+
+    return df
 
 
 def download(symbol, start_date, end_date) -> pd.DataFrame:
@@ -110,7 +125,7 @@ def write_portfolio(
     weight: np.ndarray,
     expected_r: float,
     expected_v: float,
-    path_savefile: str = "portfolio.json",
+    path_savefile: str,
 ):
     assert len(tickers) == len(
         weight
@@ -169,6 +184,16 @@ def select_stock_varying_windows(yf_df: pd.DataFrame, top_k: int) -> List[str]:
 #################
 ### portfolio ###
 #################
+def generate_portfolio(
+    start_date: str,
+    end_date: str,
+    path_savefile: str = "portfolio.json",
+) -> None:
+    df = download_assets(start_date=start_date, end_date=end_date)
+    tickers, optimal_w, optimal_r, optimal_v = optimize_asset_portfolio(df)
+    write_portfolio(tickers, optimal_w, optimal_r, optimal_v, path_savefile)
+
+
 def kelly(win_rate: float, net_profit: float, net_loss: float) -> float:
     assert 0 <= win_rate <= 1
     return (1.0 * win_rate / (net_loss + 1e-6)) - (
@@ -456,15 +481,14 @@ def plot_return_index(start_date: str, path_savefile: str = "return_index.png") 
     plot_return(df, path_savefile)
 
 
-def plot_return_portfolio(
-    start_date: str, path_savefile: str = "return_portfolio.png"
+def plot_return_portfolio_stocks(
+    start_date: str, path_savefile: str = "return_portfolio_stocks.png"
 ) -> None:
     pf = read_portfolio()
-    tickers = [e[0] for e in pf["weights"]]
     t2n = {e[0]: e[2] for e in pf["weights"]}
 
-    start_date, end_date = period(start_date)
-    df = download(tickers, start_date, end_date)
+    df = download_portfolio(start_date)
+
     df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
 
     plot_return(df, path_savefile)
@@ -636,3 +660,24 @@ def plot_soaring_stocks(top_k=7):
         df_return.plot(figsize=(16, 12))
 
         plt.savefig(f"SandP_{window}_days_best_{top_k}.png")
+
+
+def plot_backtest(start_date: str, end_date: str, benchmark: str = "s&p") -> None:
+    portfolio = read_portfolio()
+    df = download_portfolio(start_date, end_date)
+
+    portfolio_pct_change = pd.Series(0, index=df["Close"].index, name="Close")
+    for ticker, weight, name in portfolio["weights"]:
+        portfolio_pct_change += df["Close"][ticker].pct_change() * weight
+    portfolio_returns = (portfolio_pct_change + 1).cumprod().dropna()
+
+    benchmark_ticker = find_ticker(benchmark)
+    df_benchmark = download([benchmark_ticker], start_date, end_date)
+    benchmark_returns = (df_benchmark["Close"].pct_change() + 1).cumprod().dropna()
+
+    plt.close()
+    df_return = pd.DataFrame(
+        {"portfolio": portfolio_returns, benchmark_ticker: benchmark_returns}
+    )
+    df_return.plot(figsize=(8, 6))
+    plt.savefig("backtest.png")
