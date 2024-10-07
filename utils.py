@@ -72,7 +72,11 @@ def period(
 
 
 def benchmark_return(benchmark: str, start_date: str, end_date: str) -> pd.Series:
-    benchmark_ticker = find_ticker(benchmark)
+    try:
+        benchmark_ticker = find_ticker(benchmark)
+    except:
+        benchmark_ticker = benchmark
+
     df_benchmark = download([benchmark_ticker], start_date, end_date)
     return (df_benchmark["Close"].pct_change() + 1).cumprod().dropna()
 
@@ -200,13 +204,43 @@ def select_stock_varying_windows(yf_df: pd.DataFrame, top_k: int) -> List[str]:
 #################
 ### portfolio ###
 #################
-def generate_portfolio(
+def generate_portfolio_via_equal_weight(
     start_date: str,
     end_date: str,
     path_savefile: str = "portfolio.json",
 ) -> None:
     df = download_assets(start_date=start_date, end_date=end_date)
-    tickers, optimal_w, optimal_r, optimal_v = optimize_asset_portfolio(df)
+    (
+        tickers,
+        optimal_w,
+        optimal_r,
+        optimal_v,
+    ) = optimize_asset_portfolio_via_equal_weight(df)
+    write_portfolio(tickers, optimal_w, optimal_r, optimal_v, path_savefile)
+
+
+def generate_portfolio_via_sampling(
+    start_date: str,
+    end_date: str,
+    path_savefile: str = "portfolio.json",
+) -> None:
+    df = download_assets(start_date=start_date, end_date=end_date)
+    tickers, optimal_w, optimal_r, optimal_v = optimize_asset_portfolio_via_sampling(df)
+    write_portfolio(tickers, optimal_w, optimal_r, optimal_v, path_savefile)
+
+
+def generate_portfolio_via_efficient_frontier(
+    start_date: str,
+    end_date: str,
+    path_savefile: str = "portfolio.json",
+) -> None:
+    df = download_assets(start_date=start_date, end_date=end_date)
+    (
+        tickers,
+        optimal_w,
+        optimal_r,
+        optimal_v,
+    ) = optimize_asset_portfolio_via_efficient_frontier(df)
     write_portfolio(tickers, optimal_w, optimal_r, optimal_v, path_savefile)
 
 
@@ -236,7 +270,7 @@ def filter_assets(pct_ch: pd.DataFrame, key="Close"):
 
 
 def efficient_frontier(
-    ret: np.ndarray, cov_mat: np.ndarray, N=1000
+    ret: np.ndarray, cov_mat: np.ndarray, N=1_000
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     assert len(ret) == len(
         cov_mat
@@ -250,18 +284,18 @@ def efficient_frontier(
     c = np.ones(n).T @ inv_cov @ np.ones(n)
     d = b * c - a**2
 
-    returns = np.linspace(0.0, 0.005, N)
+    returns = np.linspace(0.0, 0.01, N)
     volatilities = np.zeros(N)
-    weight_arr = np.zeros((N, len(ret)))
+    weights = np.zeros((N, len(ret)))
 
     for i in range(N):
         w = 1 / d * (c * inv_cov @ ret - a * inv_cov @ np.ones(n)) * returns[
             i
         ] + 1 / d * (b * inv_cov @ np.ones(n) - a * inv_cov @ ret)
         volatilities[i] = np.sqrt(w.T @ cov_mat @ w)
-        weight_arr[i, :] = w
+        weights[i, :] = w
 
-    return weight_arr, returns, volatilities
+    return weights, returns, volatilities
 
 
 def random_portfolio(
@@ -293,11 +327,67 @@ def compute_return_volatility(
     return tickers, r, cov
 
 
-def optimize_asset_portfolio(
-    df: pd.DataFrame, key="Close", return_samples: bool = False
-):
+def optimize_asset_portfolio_via_efficient_frontier(
+    df: pd.DataFrame, key="Close", return_frontiers: bool = False
+) -> Tuple:
     pct_ch = percent_change(df, key)
-    pct_ch_filted = filter_assets(pct_ch)
+    tickers, r, cov = compute_return_volatility(pct_ch)
+
+    while True:
+        weights, returns, volatilities = efficient_frontier(r, cov)
+
+        if any((w >= 0).all() for w in weights):
+            mask_pos_w = np.array([True if (w >= 0).all() else False for w in weights])
+            weights = weights[mask_pos_w]
+            returns = returns[mask_pos_w]
+            volatilities = volatilities[mask_pos_w]
+
+            sharpe = returns / volatilities
+            index_opt = np.argmax(sharpe)
+
+            optimal_w = weights[index_opt]
+            optimal_r = returns[index_opt]
+            optimal_v = volatilities[index_opt]
+            break
+        else:
+            # remove assets with negative weights
+            pct_ch = pct_ch[
+                [
+                    tickers[i]
+                    for i in sorted(
+                        range(len(tickers)), key=lambda k: sum(weights[:, k])
+                    )[1:]
+                ]
+            ]
+            if pct_ch.shape[1] == 0:
+                if return_frontiers:
+                    return ["SPY", "QQQ"], [0.5, 0.5], 0, 0, None, None, None
+                else:
+                    return ["SPY", "QQQ"], [0.5, 0.5], 0, 0
+            tickers, r, cov = compute_return_volatility(pct_ch)
+
+    if return_frontiers:
+        return tickers, optimal_w, optimal_r, optimal_v, returns, volatilities, sharpe
+    else:
+        return tickers, optimal_w, optimal_r, optimal_v
+
+
+def optimize_asset_portfolio_via_equal_weight(
+    df: pd.DataFrame, key="Close", return_samples: bool = False
+) -> Tuple:
+    df_return = yf_return(df)
+    tickers = df_return.columns
+    optimal_w = np.array([1.0 / df_return[t].iloc[-1] for t in tickers])
+    optimal_w /= optimal_w.sum()
+    return tickers, optimal_w, -1, -1
+
+
+def optimize_asset_portfolio_via_sampling(
+    df: pd.DataFrame, key="Close", return_samples: bool = False
+) -> Tuple:
+    pct_ch = percent_change(df, key)
+    pct_ch_filted = pct_ch
+    # pct_ch_filted = filter_assets(pct_ch)
 
     tickers, r, cov = compute_return_volatility(pct_ch_filted)
 
@@ -411,21 +501,21 @@ def plot_kelly_2d(path_savefile="kelly_criterion.png") -> None:
     profits = np.linspace(0, 1.0, num=101)
 
     losses = np.linspace(0.1, 1.0, num=10)
-    datas = []
+    all_data = []
     for loss in losses:
         data = [[0] * len(profits) for _ in range(len(win_rates))]
         for i in range(len(win_rates)):
             for j in range(len(profits)):
                 ratio = kelly(win_rates[i], profits[j], loss)
                 data[i][j] = ratio if ratio > 0 else 0
-        datas.append(data)
+        all_data.append(data)
 
     plt.close()
     fig, axes = plt.subplots(2, 5, figsize=(15, 6))
     for i in range(2):
         for j in range(5):
             draw = axes[i, j].imshow(
-                np.array(datas[5 * i + j]),
+                np.array(all_data[5 * i + j]),
                 cmap="viridis",
                 interpolation="nearest",
                 vmin=0,
@@ -459,6 +549,43 @@ def plot_return(df: pd.DataFrame, path_savefile: str) -> None:
     plt.savefig(path_savefile)
 
 
+def plot_return_leverage_with_ma(
+    start_date: str, path_savefile: str = "return_leverage_with_ma.png"
+) -> None:
+    tickers = ["SPXL", "TQQQ", "SOXL"]
+    start_date, end_date = period(start_date)
+    df = download(tickers, start_date, end_date)
+
+    plt.close()
+    plt.figure(figsize=(16, 12))
+    df_return = yf_return(df)
+    df_ma10 = df["Close"].rolling(window=10).mean().dropna()
+    df_ma10 /= df_ma10.iloc[0]
+    df_ma20 = df["Close"].rolling(window=20).mean().dropna()
+    df_ma20 /= df_ma20.iloc[0]
+
+    for ticker in tickers:
+        plt.plot(df_return[ticker].index, list(df_return[ticker]), label=ticker)
+        plt.plot(df_ma10[ticker].index, list(df_ma10[ticker]), label=ticker + "_ma10")
+        plt.plot(df_ma20[ticker].index, list(df_ma20[ticker]), label=ticker + "_ma20")
+
+    plt.xlabel("Date")
+    plt.ylabel("Return")
+    plt.legend()
+
+    plt.savefig(path_savefile)
+
+
+def plot_return_leverage(
+    start_date: str, path_savefile: str = "return_leverage.png"
+) -> None:
+    tickers = ["SPY", "SPXL", "TQQQ", "QQQ", "SOXX", "SOXL"]
+    start_date, end_date = period(start_date)
+    df = download(tickers, start_date, end_date)
+
+    plot_return(df, path_savefile)
+
+
 def plot_return_by_sector(
     start_date: str, path_savefile: str = "return_sector.png"
 ) -> None:
@@ -474,10 +601,18 @@ def plot_return_by_asset(
 ) -> None:
     df = download_assets(start_date)
 
-    df_return = yf_return(df)
+    pct_ch = (
+        df["Close"].pct_change(periods=1, fill_method=None).dropna(axis=1, how="all")
+    )
+    df_return = (pct_ch + 1).cumprod()
+    df_return = df_return[
+        [col for col in df_return.columns if df_return[col].iloc[-1] > 4]
+    ]
+    t2n = {t: n for t, n in ticker2name("assets").items()}
+    df_return.columns = [t2n[c] for c in df_return.columns]
 
     plt.close()
-    df_return.plot(figsize=(32, 24), legend=False)
+    df_return.plot(figsize=(16, 12))
     plt.savefig(path_savefile)
 
 
@@ -530,8 +665,84 @@ def plot_return_portfolio_stocks(
     plot_return(df, path_savefile)
 
 
-def plot_portfolio(
-    start_date: str, key="Close", path_savefile: str = "portfolio.png"
+def plot_portfolio_via_efficient_frontier(
+    start_date: str,
+    key="Close",
+    path_savefile: str = "portfolio_via_efficient_frontier.png",
+) -> None:
+    df = download_assets(start_date)
+
+    (
+        tickers,
+        weight,
+        optimal_r,
+        optimal_v,
+        returns,
+        valitilities,
+        sharpe,
+    ) = optimize_asset_portfolio_via_efficient_frontier(df, key, return_frontiers=True)
+
+    df_random = pd.DataFrame(
+        {
+            "return": returns,
+            "volatility": valitilities,
+            "Sharpe": sharpe,
+        }
+    )
+
+    plt.close()
+    sns.scatterplot(
+        df_random, x="volatility", y="return", hue="Sharpe", s=3, legend=False
+    )
+    # draw tangent point
+    plt.scatter(
+        [optimal_v],
+        [optimal_r],
+        color="r",
+        marker="*",
+        s=30,
+        label="Tangent",
+    )
+    # plot S&P, Nasdaq, Dow, Gold
+    plt.scatter(
+        [np.sqrt(df[key][find_ticker("s&p")].pct_change().var())],
+        [df[key][find_ticker("s&p")].pct_change().mean()],
+        color="black",
+        marker="o",
+        s=10,
+        label="s&p",
+    )
+    plt.scatter(
+        [np.sqrt(df[key][find_ticker("nasdaq")].pct_change().var())],
+        [df[key][find_ticker("nasdaq")].pct_change().mean()],
+        color="blue",
+        marker="o",
+        s=10,
+        label="nasdaq",
+    )
+    plt.scatter(
+        [np.sqrt(df[key][find_ticker("dow")].pct_change().var())],
+        [df[key][find_ticker("dow")].pct_change().mean()],
+        color="green",
+        marker="o",
+        s=10,
+        label="dow",
+    )
+    plt.scatter(
+        [np.sqrt(df[key][find_ticker("gold")].pct_change().var())],
+        [df[key][find_ticker("gold")].pct_change().mean()],
+        color="yellow",
+        marker="o",
+        s=10,
+        label="gold",
+    )
+
+    plt.legend()
+    plt.savefig(path_savefile, bbox_inches="tight")
+
+
+def plot_portfolio_via_sampling(
+    start_date: str, key="Close", path_savefile: str = "portfolio_via_sampling.png"
 ) -> None:
     df = download_assets(start_date)
 
@@ -543,7 +754,7 @@ def plot_portfolio(
         random_r,
         random_v,
         random_sharpe,
-    ) = optimize_asset_portfolio(df, key, return_samples=True)
+    ) = optimize_asset_portfolio_via_sampling(df, key, return_samples=True)
 
     df_random = pd.DataFrame(
         {
@@ -713,6 +924,7 @@ def plot_backtest(start_date: str, end_date: str, benchmark: str = "s&p") -> Non
 def plot_periodic_update_backtest(
     start_date: str,
     update_period: int,
+    method: str,
     benchmark: str = "s&p",
     transaction_rate: float = 0.01,
 ) -> None:
@@ -720,7 +932,9 @@ def plot_periodic_update_backtest(
     start_date = datetime.strptime(start_date, "%Y-%m-%d")
     end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
-    portfolio_returns, benchmark_returns = None, None
+    prev_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
+
+    portfolio_returns = None
     current_date = start_date
     while current_date + timedelta(days=2 * update_period) <= end_date:
         # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
@@ -733,39 +947,73 @@ def plot_periodic_update_backtest(
         opt_s = datetime.strftime(current_date, "%Y-%m-%d")
         opt_e = test_s
 
-        generate_portfolio(
-            start_date=opt_s,
-            end_date=opt_e,
+        if method == "sampling":
+            generate_portfolio_via_sampling(
+                start_date=opt_s,
+                end_date=opt_e,
+            )
+        elif method == "efficient_frontier":
+            generate_portfolio_via_efficient_frontier(
+                start_date=opt_s,
+                end_date=opt_e,
+            )
+        elif method == "equal_weight":
+            generate_portfolio_via_equal_weight(
+                start_date=opt_s,
+                end_date=opt_e,
+            )
+
+        curr_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
+        change_ratio = sum(
+            [abs(curr_weights[asset] - prev_weights[asset]) for asset in curr_weights]
         )
+        prev_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
 
         pf_r = portfolio_return(test_s, test_e)
-        bm_r = benchmark_return(benchmark, test_s, test_e)
-
         if portfolio_returns is None:
             portfolio_returns = pf_r
         else:
             portfolio_returns = pd.concat(
                 [
                     portfolio_returns,
-                    pf_r * portfolio_returns.iloc[-1] * (1 - transaction_rate),
-                ]
-            )
-
-        if benchmark_returns is None:
-            benchmark_returns = bm_r
-        else:
-            benchmark_returns = pd.concat(
-                [
-                    benchmark_returns,
-                    bm_r * benchmark_returns.iloc[-1],
+                    pf_r
+                    * portfolio_returns.iloc[-1]
+                    * (1 - transaction_rate * change_ratio),
                 ]
             )
 
         current_date += timedelta(days=update_period)
 
+    benchmark_returns = benchmark_return(
+        benchmark,
+        portfolio_returns.index[0] - timedelta(days=1),
+        portfolio_returns.index[-1],
+    )
+    spxl = benchmark_return(
+        "SPXL",
+        portfolio_returns.index[0] - timedelta(days=1),
+        portfolio_returns.index[-1],
+    )
+    tqqq = benchmark_return(
+        "TQQQ",
+        portfolio_returns.index[0] - timedelta(days=1),
+        portfolio_returns.index[-1],
+    )
+    soxl = benchmark_return(
+        "SOXL",
+        portfolio_returns.index[0] - timedelta(days=1),
+        portfolio_returns.index[-1],
+    )
+
     plt.close()
     df_return = pd.DataFrame(
-        {"portfolio": portfolio_returns, benchmark: benchmark_returns}
+        {
+            "portfolio": portfolio_returns,
+            benchmark: benchmark_returns,
+            "SPXL": spxl,
+            "TQQQ": tqqq,
+            "SOXL": soxl,
+        }
     )
     df_return.plot(figsize=(16, 8))
-    plt.savefig(f"backtest_update_{update_period}.png")
+    plt.savefig(f"backtest_update_{update_period}_{method}.png")
