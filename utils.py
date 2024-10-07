@@ -333,38 +333,13 @@ def optimize_asset_portfolio_via_efficient_frontier(
     pct_ch = percent_change(df, key)
     tickers, r, cov = compute_return_volatility(pct_ch)
 
-    while True:
-        weights, returns, volatilities = efficient_frontier(r, cov)
-
-        if any((w >= 0).all() for w in weights):
-            mask_pos_w = np.array([True if (w >= 0).all() else False for w in weights])
-            weights = weights[mask_pos_w]
-            returns = returns[mask_pos_w]
-            volatilities = volatilities[mask_pos_w]
-
-            sharpe = returns / volatilities
-            index_opt = np.argmax(sharpe)
-
-            optimal_w = weights[index_opt]
-            optimal_r = returns[index_opt]
-            optimal_v = volatilities[index_opt]
-            break
-        else:
-            # remove assets with negative weights
-            pct_ch = pct_ch[
-                [
-                    tickers[i]
-                    for i in sorted(
-                        range(len(tickers)), key=lambda k: sum(weights[:, k])
-                    )[1:]
-                ]
-            ]
-            if pct_ch.shape[1] == 0:
-                if return_frontiers:
-                    return ["SPY", "QQQ"], [0.5, 0.5], 0, 0, None, None, None
-                else:
-                    return ["SPY", "QQQ"], [0.5, 0.5], 0, 0
-            tickers, r, cov = compute_return_volatility(pct_ch)
+    weights, returns, volatilities = efficient_frontier(r, cov)
+    
+    sharpe = returns / volatilities
+    index_opt = np.argmax(sharpe)
+    optimal_w = weights[index_opt]
+    optimal_r = returns[index_opt]
+    optimal_v = volatilities[index_opt]
 
     if return_frontiers:
         return tickers, optimal_w, optimal_r, optimal_v, returns, volatilities, sharpe
