@@ -36,7 +36,7 @@ def download_sectors(start_date: str, end_date: Optional[str] = None) -> pd.Data
 
 def download_portfolio(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
     pf = read_portfolio()
-    tickers = [e[0] for e in pf["weights"]]
+    tickers = [e[0] for e in pf["weights"] if e[0] != "cash"]
 
     if end_date is None:
         start_date, end_date = period(start_date)
@@ -78,17 +78,23 @@ def benchmark_return(benchmark: str, start_date: str, end_date: str) -> pd.Serie
         benchmark_ticker = benchmark
 
     df_benchmark = download([benchmark_ticker], start_date, end_date)
-    return (df_benchmark["Close"].pct_change() + 1).cumprod().dropna()
+    return (df_benchmark["Close"].pct_change().fillna(0) + 1).cumprod().dropna()
 
 
 def portfolio_return(start_date: str, end_date: str) -> pd.Series:
     portfolio = read_portfolio()
     df = download_portfolio(start_date, end_date)
 
-    portfolio_pct_change = pd.Series(0, index=df["Close"].index, name="Close")
+    portfolio_return = pd.Series(0, index=df["Close"].index, name="Close")
     for ticker, weight, name in portfolio["weights"]:
-        portfolio_pct_change += df["Close"][ticker].pct_change() * weight
-    return (portfolio_pct_change + 1).cumprod().dropna()
+        portfolio_return += (
+            df["Close"][ticker].pct_change().fillna(0) + 1
+        ).cumprod().dropna() * weight
+
+    if "cash" in portfolio:
+        portfolio_return += portfolio["cash"]
+
+    return portfolio_return
 
 
 ###########
@@ -146,7 +152,7 @@ def write_portfolio(
     expected_r: float,
     expected_v: float,
     path_savefile: str,
-):
+) -> None:
     assert len(tickers) == len(
         weight
     ), "tickers and weight should have the same length."
@@ -156,6 +162,26 @@ def write_portfolio(
     data = {
         "expected_return": expected_r,
         "expected_volatility": expected_v,
+        "weights": [(t, w, t2n[t]) for t, w in zip(tickers, weight)],
+    }
+
+    json.dump(data, open(path_savefile, "w"), indent=4)
+
+
+def write_portfolio_rebalancing(
+    tickers: List[str],
+    weight: np.ndarray,
+    cash_amount: float,
+    path_savefile: str,
+) -> None:
+    assert len(tickers) == len(
+        weight
+    ), "tickers and weight should have the same length."
+
+    t2n = ticker2name("assets")
+
+    data = {
+        "cash": cash_amount,
         "weights": [(t, w, t2n[t]) for t, w in zip(tickers, weight)],
     }
 
@@ -204,6 +230,24 @@ def select_stock_varying_windows(yf_df: pd.DataFrame, top_k: int) -> List[str]:
 #################
 ### portfolio ###
 #################
+def generate_portfolio_via_rebalancing(
+    start_date: str,
+    end_date: str,
+    target_weights: List[float],
+    transaction_fee_rate: float,
+    path_savefile: str = "portfolio.json",
+) -> None:
+    portfolio = read_portfolio()
+    cash_amount = portfolio["cash"]
+
+    df = download_assets(start_date=start_date, end_date=end_date)
+
+    tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
+        df, cash_amount, target_weights, transaction_fee_rate
+    )
+    write_portfolio_rebalancing(tickers, optimal_w, new_cash_amount, path_savefile)
+
+
 def generate_portfolio_via_equal_weight(
     start_date: str,
     end_date: str,
@@ -327,6 +371,33 @@ def compute_return_volatility(
     return tickers, r, cov
 
 
+def optimize_asset_portfolio_via_rebalancing(
+    df: pd.DataFrame,
+    cash_amount: float,
+    target_weights: Iterable[float],
+    transaction_fee_rate: float,
+    key="Close",
+) -> Tuple:
+    df_return = df[key].iloc[-1] / df[key].iloc[0]
+
+    tickers = list(df_return.index)
+    t2r = {ticker: df_return[ticker] * target_weights[ticker] for ticker in tickers}
+    total = sum(t2r.values()) + cash_amount
+
+    optimal_w = []
+    for ticker in tickers:
+        target = target_weights[ticker] * total
+        new_weight = target / df_return[ticker]
+        new_weight /= (
+            1 + transaction_fee_rate
+        )  # compensate for transaction fee by reducing weight
+        optimal_w.append(new_weight)
+
+    curr_cash_amount = total * target_weights["cash"]
+
+    return tickers, optimal_w, curr_cash_amount
+
+
 def optimize_asset_portfolio_via_efficient_frontier(
     df: pd.DataFrame, key="Close", return_frontiers: bool = False
 ) -> Tuple:
@@ -334,7 +405,7 @@ def optimize_asset_portfolio_via_efficient_frontier(
     tickers, r, cov = compute_return_volatility(pct_ch)
 
     weights, returns, volatilities = efficient_frontier(r, cov)
-    
+
     sharpe = returns / volatilities
     index_opt = np.argmax(sharpe)
     optimal_w = weights[index_opt]
@@ -417,7 +488,8 @@ def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
 def percent_change(yf_df: pd.DataFrame, key="Close", periods=1) -> pd.DataFrame:
     return (
         yf_df[key]
-        .pct_change(periods=periods, fill_method=None)
+        .pct_change(periods=periods)
+        .fillna(0)
         .dropna(axis=1, how="all")
         .dropna(axis=0)
     )
@@ -680,32 +752,32 @@ def plot_portfolio_via_efficient_frontier(
     )
     # plot S&P, Nasdaq, Dow, Gold
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("s&p")].pct_change().var())],
-        [df[key][find_ticker("s&p")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("s&p")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("s&p")].pct_change().fillna(0).mean()],
         color="black",
         marker="o",
         s=10,
         label="s&p",
     )
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("nasdaq")].pct_change().var())],
-        [df[key][find_ticker("nasdaq")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("nasdaq")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("nasdaq")].pct_change().fillna(0).mean()],
         color="blue",
         marker="o",
         s=10,
         label="nasdaq",
     )
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("dow")].pct_change().var())],
-        [df[key][find_ticker("dow")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("dow")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("dow")].pct_change().fillna(0).mean()],
         color="green",
         marker="o",
         s=10,
         label="dow",
     )
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("gold")].pct_change().var())],
-        [df[key][find_ticker("gold")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("gold")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("gold")].pct_change().fillna(0).mean()],
         color="yellow",
         marker="o",
         s=10,
@@ -759,32 +831,32 @@ def plot_portfolio_via_sampling(
     )
     # plot S&P, Nasdaq, Dow, Gold
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("s&p")].pct_change().var())],
-        [df[key][find_ticker("s&p")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("s&p")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("s&p")].pct_change().fillna(0).mean()],
         color="black",
         marker="o",
         s=10,
         label="s&p",
     )
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("nasdaq")].pct_change().var())],
-        [df[key][find_ticker("nasdaq")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("nasdaq")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("nasdaq")].pct_change().fillna(0).mean()],
         color="blue",
         marker="o",
         s=10,
         label="nasdaq",
     )
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("dow")].pct_change().var())],
-        [df[key][find_ticker("dow")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("dow")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("dow")].pct_change().fillna(0).mean()],
         color="green",
         marker="o",
         s=10,
         label="dow",
     )
     plt.scatter(
-        [np.sqrt(df[key][find_ticker("gold")].pct_change().var())],
-        [df[key][find_ticker("gold")].pct_change().mean()],
+        [np.sqrt(df[key][find_ticker("gold")].pct_change().fillna(0).var())],
+        [df[key][find_ticker("gold")].pct_change().fillna(0).mean()],
         color="yellow",
         marker="o",
         s=10,
@@ -876,7 +948,7 @@ def plot_soaring_stocks(top_k=7):
     for window in window2stocks:
         plt.close()
 
-        pct_ch = df["Close"][window2stocks[window]].pct_change().dropna()
+        pct_ch = df["Close"][window2stocks[window]].pct_change().fillna(0).dropna()
         df_return = (pct_ch + 1).cumprod()
 
         df_return.plot(figsize=(16, 12))
@@ -898,97 +970,180 @@ def plot_backtest(start_date: str, end_date: str, benchmark: str = "s&p") -> Non
 
 def plot_periodic_update_backtest(
     start_date: str,
-    update_period: int,
+    end_date: str,
     method: str,
+    update_periods: List[int] = [50, 100, 200],  # [10, 20, 50, 100, 200],
     benchmark: str = "s&p",
-    transaction_rate: float = 0.01,
+    transaction_fee_rate: float = 0.01,
 ) -> None:
-    start_date, end_date = period(start_date)
     start_date = datetime.strptime(start_date, "%Y-%m-%d")
     end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
-    prev_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
-
-    portfolio_returns = None
-    current_date = start_date
-    while current_date + timedelta(days=2 * update_period) <= end_date:
-        # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
-        test_s = datetime.strftime(
-            current_date + timedelta(days=update_period - 1), "%Y-%m-%d"
-        )
-        test_e = datetime.strftime(
-            current_date + timedelta(days=2 * update_period), "%Y-%m-%d"
-        )
-        opt_s = datetime.strftime(current_date, "%Y-%m-%d")
-        opt_e = test_s
-
-        if method == "sampling":
-            generate_portfolio_via_sampling(
-                start_date=opt_s,
-                end_date=opt_e,
-            )
-        elif method == "efficient_frontier":
-            generate_portfolio_via_efficient_frontier(
-                start_date=opt_s,
-                end_date=opt_e,
-            )
-        elif method == "equal_weight":
-            generate_portfolio_via_equal_weight(
-                start_date=opt_s,
-                end_date=opt_e,
-            )
-
-        curr_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
-        change_ratio = sum(
-            [abs(curr_weights[asset] - prev_weights[asset]) for asset in curr_weights]
-        )
-        prev_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
-
-        pf_r = portfolio_return(test_s, test_e)
-        if portfolio_returns is None:
-            portfolio_returns = pf_r
-        else:
-            portfolio_returns = pd.concat(
-                [
-                    portfolio_returns,
-                    pf_r
-                    * portfolio_returns.iloc[-1]
-                    * (1 - transaction_rate * change_ratio),
-                ]
-            )
-
-        current_date += timedelta(days=update_period)
-
     benchmark_returns = benchmark_return(
         benchmark,
-        portfolio_returns.index[0] - timedelta(days=1),
-        portfolio_returns.index[-1],
-    )
-    spxl = benchmark_return(
-        "SPXL",
-        portfolio_returns.index[0] - timedelta(days=1),
-        portfolio_returns.index[-1],
-    )
-    tqqq = benchmark_return(
-        "TQQQ",
-        portfolio_returns.index[0] - timedelta(days=1),
-        portfolio_returns.index[-1],
-    )
-    soxl = benchmark_return(
-        "SOXL",
-        portfolio_returns.index[0] - timedelta(days=1),
-        portfolio_returns.index[-1],
+        start_date,
+        end_date,
     )
 
+    df_benchmark = download(["SPXL", "TQQQ", "SOXL"], start_date, end_date)
+    equal_rate = (
+        (df_benchmark["Close"].pct_change().fillna(0) + 1)
+        .cumprod()
+        .mean(axis=1)
+        .dropna()
+    )
+    spxl = (df_benchmark["Close"]["SPXL"].pct_change().fillna(0) + 1).cumprod().dropna()
+    tqqq = (df_benchmark["Close"]["TQQQ"].pct_change().fillna(0) + 1).cumprod().dropna()
+    soxl = (df_benchmark["Close"]["SOXL"].pct_change().fillna(0) + 1).cumprod().dropna()
+
+    # period2series = {}
+    # for update_period in update_periods:
+    #     tickers = ticker("assets")
+    #     prev_weights = {t: 1.0 / len(tickers) for t in tickers}
+
+    #     portfolio_returns = None
+    #     current_date = start_date - timedelta(days=update_period)
+    #     while current_date + timedelta(days=2*update_period) <= end_date:
+    #         # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
+    #         opt_s = current_date
+    #         opt_e = current_date + timedelta(days=update_period)
+    #         test_s = opt_e
+    #         test_e = test_s + timedelta(days=update_period)
+
+    #         if method == "sampling":
+    #             generate_portfolio_via_sampling(
+    #                 start_date=opt_s,
+    #                 end_date=opt_e,
+    #             )
+    #         elif method == "efficient_frontier":
+    #             generate_portfolio_via_efficient_frontier(
+    #                 start_date=opt_s,
+    #                 end_date=opt_e,
+    #             )
+    #         elif method == "equal_weight":
+    #             generate_portfolio_via_equal_weight(
+    #                 start_date=opt_s,
+    #                 end_date=opt_e,
+    #             )
+
+    #         curr_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
+    #         change_ratio = sum(
+    #             [
+    #                 abs(curr_weights[asset] - prev_weights[asset])
+    #                 for asset in curr_weights
+    #             ]
+    #         )
+    #         prev_weights = {e[0]: e[1] for e in read_portfolio()["weights"]}
+
+    #         pf_r = portfolio_return(test_s, test_e)
+    #         if portfolio_returns is None:
+    #             portfolio_returns = pf_r
+    #         else:
+    #             portfolio_returns = pd.concat(
+    #                 [
+    #                     portfolio_returns,
+    #                     pf_r
+    #                     * portfolio_returns.iloc[-1]
+    #                     * (1 - transaction_fee_rate * change_ratio),
+    #                 ]
+    #             )
+
+    #         current_date += timedelta(days=update_period)
+
+    #     period2series[update_period] = portfolio_returns
+
     plt.close()
-    df_return = pd.DataFrame(
+    # data = {f"portfolio_update_{p}": s for p, s in period2series.items()}
+    data = {}
+    data.update(
         {
-            "portfolio": portfolio_returns,
             benchmark: benchmark_returns,
             "SPXL": spxl,
             "TQQQ": tqqq,
             "SOXL": soxl,
+            "equal_rate": equal_rate,
         }
     )
+    df_return = pd.DataFrame(data)
     df_return.plot(figsize=(16, 8))
-    plt.savefig(f"backtest_update_{update_period}_{method}.png")
+    plt.savefig(f"backtest_update_{method}.png")
+
+
+def plot_rebalancing_backtest(
+    start_date: str,
+    end_date: str,
+    update_periods: List[int] = [10, 20, 50, 100, 200],
+    benchmark: str = "s&p",
+    transaction_fee_rate: float = 0.005,
+) -> None:
+    start_date = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date = datetime.strptime(end_date, "%Y-%m-%d")
+    tickers = ticker("assets")
+
+    benchmark_returns = benchmark_return(
+        benchmark,
+        start_date,
+        end_date,
+    )
+
+    df_benchmark = download(["SPXL", "TQQQ", "SOXL"], start_date, end_date)
+    equal_rate = (
+        (df_benchmark["Close"].pct_change().fillna(0) + 1)
+        .cumprod()
+        .mean(axis=1)
+        .dropna()
+    )
+    spxl = (df_benchmark["Close"]["SPXL"].pct_change().fillna(0) + 1).cumprod().dropna()
+    tqqq = (df_benchmark["Close"]["TQQQ"].pct_change().fillna(0) + 1).cumprod().dropna()
+    soxl = (df_benchmark["Close"]["SOXL"].pct_change().fillna(0) + 1).cumprod().dropna()
+
+    target_weights = {
+        "cash": 1.0 / 4,
+        "SOXL": 1.0 / 4,
+        "SPXL": 1.0 / 4,
+        "TQQQ": 1.0 / 4,
+    }
+    period2series = {}
+    for update_period in update_periods:
+        portfolio_returns = None
+        current_date = start_date - timedelta(days=update_period)
+        while current_date + timedelta(days=2 * update_period) <= end_date:
+            # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
+            opt_s = current_date
+            opt_e = current_date + timedelta(days=update_period)
+            test_s = opt_e
+            test_e = test_s + timedelta(days=update_period)
+
+            generate_portfolio_via_rebalancing(
+                start_date=opt_s,
+                end_date=opt_e,
+                target_weights=target_weights,
+                transaction_fee_rate=transaction_fee_rate,
+            )
+
+            pf_r = portfolio_return(test_s, test_e)
+            if portfolio_returns is None:
+                portfolio_returns = pf_r
+            else:
+                portfolio_returns = pd.concat(
+                    [portfolio_returns, pf_r * portfolio_returns.iloc[-1]]
+                )
+
+            current_date += timedelta(days=update_period)
+
+        period2series[update_period] = portfolio_returns
+
+    plt.close()
+    data = {f"portfolio_update_{p}": s for p, s in period2series.items()}
+    data.update(
+        {
+            benchmark: benchmark_returns,
+            "SPXL": spxl,
+            "TQQQ": tqqq,
+            "SOXL": soxl,
+            "equal_rate": equal_rate,
+        }
+    )
+    df_return = pd.DataFrame(data)
+    df_return.plot(figsize=(16, 8))
+    plt.savefig(f"backtest_update_balance.png")

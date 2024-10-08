@@ -37,10 +37,6 @@
     ],
     [
         "^SP500-45",
-        "S&P 500 Information Technology"
-    ],
-    [
-        "^SP500-45",
         "S&P 500 Communication Services"
     ]
 ]
