@@ -214,7 +214,7 @@ def select_stock(
         yf_df[key][yf_df[key].columns]
         .rolling(window=window)
         .mean()
-        .pct_change(periods=window, fill_method=None)
+        .pct_change(periods=window)
         .dropna(axis=1, how="all")
     )
 
@@ -527,9 +527,7 @@ def plot_return_by_sector(start_date, path_savefile: str = "return_sector.png") 
 def plot_return_by_asset(start_date, path_savefile: str = "return_asset.png") -> None:
     df = download_assets(start_date)
 
-    pct_ch = (
-        df["Close"].pct_change(periods=1, fill_method=None).dropna(axis=1, how="all")
-    )
+    pct_ch = df["Close"].pct_change(periods=1).dropna(axis=1, how="all")
     df_return = (pct_ch + 1).cumprod()
     df_return = df_return[
         [col for col in df_return.columns if df_return[col].iloc[-1] > 4]
@@ -617,8 +615,6 @@ def plot_matrix(start_date, target: str, matrix_data: str):
 
     plt.close()
     # assets have many elements that figsize should be big
-    if target == "assets":
-        plt.figure(figsize=(60, 48))
     sns.heatmap(data, cmap="seismic", annot=True)
     plt.savefig(f"{matrix_data}_{target}.png", bbox_inches="tight")
 
