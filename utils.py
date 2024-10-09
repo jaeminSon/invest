@@ -14,28 +14,28 @@ import yfinance as yf
 #####################
 ### yahoo finance ###
 #####################
-def download_SandP(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+def download_SandP(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     if end_date is None:
         start_date, end_date = period(start_date)
     tickers = ticker("s&p500")
     return download(tickers, start_date, end_date)
 
 
-def download_assets(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+def download_assets(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     if end_date is None:
         start_date, end_date = period(start_date)
     tickers = ticker("assets")
     return download(tickers, start_date, end_date)
 
 
-def download_sectors(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+def download_sectors(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     if end_date is None:
         start_date, end_date = period(start_date)
     tickers = ticker("sectors")
     return download(tickers, start_date, end_date)
 
 
-def download_portfolio(start_date: str, end_date: Optional[str] = None) -> pd.DataFrame:
+def download_portfolio(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     pf = read_portfolio()
     tickers = [e[0] for e in pf["weights"] if e[0] != "cash"]
 
@@ -213,14 +213,78 @@ def select_stock_varying_windows(yf_df: pd.DataFrame, top_k: int) -> List[str]:
 #################
 def kelly(win_rate: float, net_profit: float, net_loss: float) -> float:
     assert 0 <= win_rate <= 1
-    return (1.0 * win_rate / (net_loss + 1e-6)) - (
+    assert net_loss > 0
+
+    if net_profit < 0:
+        return 0
+
+    bet = (1.0 * win_rate / (net_loss + 1e-6)) - (
         1.0 * (1 - win_rate) / (net_profit + 1e-6)
+    )
+
+    if bet < 0:
+        return 0
+    else:
+        return bet
+
+
+def set_target_weights(
+    start_date, end_date, asset_open_date="2012-01-01", max_loss=0.3, key="Close"
+) -> Dict:
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, "%Y-%m-%d")
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+
+    df = download_assets(start_date=asset_open_date, end_date=end_date)
+
+    period = (end_date - start_date).days
+
+    pct_ch = percent_change(df, periods=period, fillna_zero=False)
+
+    weights = {}
+    for ticker in df[key].columns:
+        # empirical wining rate of the previous period
+        pct_ch_sorted = sorted(np.array(pct_ch[ticker]))
+        prob_win = np.sum(pct_ch_sorted <= pct_ch[ticker].iloc[-1]) / len(pct_ch_sorted)
+
+        # mean profit in the previous period
+        # avr_price_now = df[key][ticker][start_date <= df[key][ticker].index].mean()
+        # avr_price_prev = df[key][ticker][
+        #     (start_date - timedelta(days=period) <= df[key][ticker].index)
+        #     & (df[key][ticker].index < start_date)
+        # ].mean()
+        # expected_profit = (avr_price_now - avr_price_prev) / avr_price_prev
+        # expected_profit = np.mean(pct_ch_sorted)
+
+        # weights[ticker] = kelly(prob_win, expected_profit, max_loss)
+        weights[ticker] = 1- prob_win
+        # print(prob_win, expected_profit)
+
+    sum_weights_assets = sum(weights.values())
+    if sum_weights_assets > 1:
+        weights = {t: 1.0 * w / sum_weights_assets for t, w in weights.items()}
+        weights["cash"] = 0
+    else:
+        weights["cash"] = 1 - sum_weights_assets
+
+    return weights
+
+
+def generate_initial_portfolio(start_date, end_date) -> None:
+    target_weights = set_target_weights(start_date, end_date)
+    tickers = [t for t in target_weights.keys() if t != "cash"]
+    write_portfolio(
+        tickers,
+        [target_weights[t] for t in tickers],
+        target_weights["cash"],
+        "portfolio.json",
     )
 
 
 def generate_portfolio_via_rebalancing(
-    start_date: str,
-    end_date: str,
+    start_date,
+    end_date,
     prev_portfolio: Dict,
     target_weights: List[float],
     transaction_fee_rate: float,
@@ -288,14 +352,24 @@ def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
 ###############
 ### Utility ###
 ###############
-def percent_change(yf_df: pd.DataFrame, key="Close", periods=1) -> pd.DataFrame:
-    return (
-        yf_df[key]
-        .pct_change(periods=periods)
-        .fillna(0)
-        .dropna(axis=1, how="all")
-        .dropna(axis=0)
-    )
+def percent_change(
+    yf_df: pd.DataFrame, key="Close", periods=1, fillna_zero=True
+) -> pd.DataFrame:
+    if fillna_zero:
+        return (
+            yf_df[key]
+            .pct_change(periods=periods)
+            .fillna(0)
+            .dropna(axis=1, how="all")
+            .dropna(axis=0)
+        )
+    else:
+        return (
+            yf_df[key]
+            .pct_change(periods=periods)
+            .dropna(axis=1, how="all")
+            .dropna(axis=0)
+        )
 
 
 def yf_return(yf_df: pd.DataFrame, key="Close") -> pd.DataFrame:
@@ -381,7 +455,7 @@ def plot_return(df: pd.DataFrame, path_savefile: str) -> None:
 
 
 def plot_return_leverage_with_ma(
-    start_date: str, path_savefile: str = "return_leverage_with_ma.png"
+    start_date, path_savefile: str = "return_leverage_with_ma.png"
 ) -> None:
     tickers = ["SPXL", "TQQQ", "SOXL"]
     start_date, end_date = period(start_date)
@@ -408,7 +482,7 @@ def plot_return_leverage_with_ma(
 
 
 def plot_return_leverage(
-    start_date: str, path_savefile: str = "return_leverage.png"
+    start_date, path_savefile: str = "return_leverage.png"
 ) -> None:
     tickers = ["SPY", "SPXL", "TQQQ", "QQQ", "SOXX", "SOXL"]
     start_date, end_date = period(start_date)
@@ -417,9 +491,7 @@ def plot_return_leverage(
     plot_return(df, path_savefile)
 
 
-def plot_return_by_sector(
-    start_date: str, path_savefile: str = "return_sector.png"
-) -> None:
+def plot_return_by_sector(start_date, path_savefile: str = "return_sector.png") -> None:
     df = download_sectors(start_date)
     t2n = {t: " ".join(n.split()[2:]) for t, n in ticker2name("sectors").items()}
     df.columns = pd.MultiIndex.from_tuples([(c1, t2n[c2]) for c1, c2 in df.columns])
@@ -427,9 +499,7 @@ def plot_return_by_sector(
     plot_return(df, path_savefile)
 
 
-def plot_return_by_asset(
-    start_date: str, path_savefile: str = "return_asset.png"
-) -> None:
+def plot_return_by_asset(start_date, path_savefile: str = "return_asset.png") -> None:
     df = download_assets(start_date)
 
     pct_ch = (
@@ -447,7 +517,7 @@ def plot_return_by_asset(
     plt.savefig(path_savefile)
 
 
-def plot_return_index(start_date: str, path_savefile: str = "return_index.png") -> None:
+def plot_return_index(start_date, path_savefile: str = "return_index.png") -> None:
     start_date, end_date = period(start_date)
     tickers = [
         "SPY",
@@ -484,7 +554,7 @@ def plot_return_index(start_date: str, path_savefile: str = "return_index.png") 
 
 
 def plot_return_portfolio_stocks(
-    start_date: str, path_savefile: str = "return_portfolio_stocks.png"
+    start_date, path_savefile: str = "return_portfolio_stocks.png"
 ) -> None:
     pf = read_portfolio()
     t2n = {e[0]: e[2] for e in pf["weights"]}
@@ -496,7 +566,7 @@ def plot_return_portfolio_stocks(
     plot_return(df, path_savefile)
 
 
-def plot_matrix(start_date: str, target: str, matrix_data: str):
+def plot_matrix(start_date, target: str, matrix_data: str):
     start_date, end_date = period(start_date)
 
     if target == "assets":
@@ -528,15 +598,15 @@ def plot_matrix(start_date: str, target: str, matrix_data: str):
     plt.savefig(f"{matrix_data}_{target}.png", bbox_inches="tight")
 
 
-def plot_correlation(start_date: str, target: str = "assets"):
+def plot_correlation(start_date, target: str = "assets"):
     plot_matrix(start_date, target, "correlation")
 
 
-def plot_covariance(start_date: str, target: str = "assets"):
+def plot_covariance(start_date, target: str = "assets"):
     plot_matrix(start_date, target, "cov")
 
 
-def plot_return_measure(start_date: str, path_savefile: str = "return_measure.png"):
+def plot_return_measure(start_date, path_savefile: str = "return_measure.png"):
     df = download_sectors(start_date)
 
     x = np.array(percent_change(df))
@@ -628,10 +698,11 @@ def get_benchmark_data_backtest(start_date, end_date):
 
 
 def plot_rebalancing_backtest(
-    start_date: str,
-    end_date: str,
+    start_date,
+    end_date,
     update_periods: List[int] = [10, 20, 50, 100, 200],
     transaction_fee_rate: float = 0.005,
+    path_savefile: str = "backtest.png",
 ) -> None:
     target_weights = {
         "cash": 1.0 / 4,
@@ -645,21 +716,18 @@ def plot_rebalancing_backtest(
 
     period2series = {}
     for update_period in update_periods:
-        tickers = ticker("assets")
-        write_portfolio(
-            tickers,
-            [target_weights[t] for t in tickers],
-            target_weights["cash"],
-            "portfolio.json",
+        generate_initial_portfolio(
+            start_date - timedelta(days=update_period), start_date
         )
 
         portfolio_returns = None
-        current_date = start_date - timedelta(days=update_period)
+        current_date = start_date
         while current_date + timedelta(days=2 * update_period) <= end_date:
             opt_s, opt_e, test_s, test_e = set_dates_backtest(
                 current_date, update_period
             )
 
+            target_weights = set_target_weights(opt_s, opt_e)
             generate_portfolio_via_rebalancing(
                 start_date=opt_s,
                 end_date=opt_e,
@@ -683,4 +751,4 @@ def plot_rebalancing_backtest(
     data.update(get_benchmark_data_backtest(start_date, end_date))
     df_return = pd.DataFrame(data)
     df_return.plot(figsize=(16, 8))
-    plt.savefig(f"backtest.png")
+    plt.savefig(path_savefile)
