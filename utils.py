@@ -247,19 +247,7 @@ def set_target_weights(
         # empirical wining rate of the previous period
         pct_ch_sorted = sorted(np.array(pct_ch[ticker]))
         prob_win = np.sum(pct_ch_sorted <= pct_ch[ticker].iloc[-1]) / len(pct_ch_sorted)
-
-        # mean profit in the previous period
-        # avr_price_now = df[key][ticker][start_date <= df[key][ticker].index].mean()
-        # avr_price_prev = df[key][ticker][
-        #     (start_date - timedelta(days=period) <= df[key][ticker].index)
-        #     & (df[key][ticker].index < start_date)
-        # ].mean()
-        # expected_profit = (avr_price_now - avr_price_prev) / avr_price_prev
-        # expected_profit = np.mean(pct_ch_sorted)
-
-        # weights[ticker] = kelly(prob_win, expected_profit, max_loss)
-        weights[ticker] = 1- prob_win
-        # print(prob_win, expected_profit)
+        weights[ticker] = 1 - prob_win
 
     sum_weights_assets = sum(weights.values())
     if sum_weights_assets > 1:
@@ -272,25 +260,30 @@ def set_target_weights(
 
 
 def generate_initial_portfolio(start_date, end_date) -> None:
-    target_weights = set_target_weights(start_date, end_date)
-    tickers = [t for t in target_weights.keys() if t != "cash"]
+    tickers = ticker("assets")
     write_portfolio(
         tickers,
-        [target_weights[t] for t in tickers],
-        target_weights["cash"],
-        "portfolio.json",
+        weight=[0 for t in tickers],
+        cash_amount=1,
+        path_savefile="portfolio.json",
     )
 
 
 def generate_portfolio_via_rebalancing(
-    start_date,
     end_date,
-    prev_portfolio: Dict,
-    target_weights: List[float],
-    transaction_fee_rate: float,
+    rebalacing_period: int,
+    transaction_fee_rate: float = 0.005,
     path_savefile: str = "portfolio.json",
 ) -> None:
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+    start_date = end_date - timedelta(days=rebalacing_period)
+
     df = download_assets(start_date=start_date, end_date=end_date)
+
+    target_weights = set_target_weights(start_date, end_date)
+
+    prev_portfolio = read_portfolio()
 
     tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
         df, prev_portfolio, target_weights, transaction_fee_rate
@@ -661,12 +654,12 @@ def append_returns(prev_r: Optional[pd.Series], next_r: pd.Series) -> pd.Series:
         )
 
 
-def set_dates_backtest(current_date: datetime, update_period: int) -> Tuple:
+def set_dates_backtest(current_date: datetime, rebalacing_period: int) -> Tuple:
     # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
     opt_s = current_date
-    opt_e = current_date + timedelta(days=update_period)
+    opt_e = current_date + timedelta(days=rebalacing_period)
     test_s = opt_e
-    test_e = test_s + timedelta(days=update_period)
+    test_e = test_s + timedelta(days=rebalacing_period)
     return opt_s, opt_e, test_s, test_e
 
 
@@ -700,49 +693,37 @@ def get_benchmark_data_backtest(start_date, end_date):
 def plot_rebalancing_backtest(
     start_date,
     end_date,
-    update_periods: List[int] = [10, 20, 50, 100, 200],
+    rebalacing_periods: List[int] = [10, 20, 50, 100, 200],
     transaction_fee_rate: float = 0.005,
     path_savefile: str = "backtest.png",
 ) -> None:
-    target_weights = {
-        "cash": 1.0 / 4,
-        "SOXL": 1.0 / 4,
-        "SPXL": 1.0 / 4,
-        "TQQQ": 1.0 / 4,
-    }
-
     start_date = datetime.strptime(start_date, "%Y-%m-%d")
     end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
     period2series = {}
-    for update_period in update_periods:
+    for rebalacing_period in rebalacing_periods:
         generate_initial_portfolio(
-            start_date - timedelta(days=update_period), start_date
+            start_date - timedelta(days=rebalacing_period), start_date
         )
 
         portfolio_returns = None
         current_date = start_date
-        while current_date + timedelta(days=2 * update_period) <= end_date:
+        while current_date + timedelta(days=2 * rebalacing_period) <= end_date:
             opt_s, opt_e, test_s, test_e = set_dates_backtest(
-                current_date, update_period
+                current_date, rebalacing_period
             )
 
-            target_weights = set_target_weights(opt_s, opt_e)
             generate_portfolio_via_rebalancing(
-                start_date=opt_s,
-                end_date=opt_e,
-                prev_portfolio=read_portfolio(),
-                target_weights=target_weights,
-                transaction_fee_rate=transaction_fee_rate,
+                end_date=opt_e, rebalacing_period=rebalacing_period
             )
 
             pf_r = portfolio_return(test_s, test_e, portfolio_returns is not None)
 
             portfolio_returns = append_returns(portfolio_returns, pf_r)
 
-            current_date += timedelta(days=update_period)
+            current_date += timedelta(days=rebalacing_period)
 
-        period2series[update_period] = portfolio_returns
+        period2series[rebalacing_period] = portfolio_returns
 
         os.system("rm portfolio.json")
 
