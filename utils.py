@@ -200,7 +200,9 @@ def write_new_portfolio(
         create_portfolio_file(path_savefile)
 
     generate_portfolio_via_rebalancing(
-        end_date=end_date, rebalacing_period=rebalacing_period
+        end_date=end_date,
+        rebalacing_period=rebalacing_period,
+        path_savefile=path_savefile,
     )
 
 
@@ -315,7 +317,7 @@ def generate_portfolio_via_rebalancing(
 
     target_weights = set_target_weights(start_date, end_date)
 
-    prev_portfolio = read_portfolio()
+    prev_portfolio = read_portfolio(path_savefile)
 
     tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
         df, prev_portfolio, target_weights, transaction_fee_rate
