@@ -2,6 +2,7 @@ from typing import Tuple, List, Dict, Iterable, Optional
 from datetime import datetime, timedelta
 import os
 import ssl
+import shutil
 import json
 
 import numpy as np
@@ -52,9 +53,7 @@ def download(symbol, start_date, end_date) -> pd.DataFrame:
     return stock_data
 
 
-def period(
-    start_date: Optional[str] = None, date_back: Optional[str] = None
-) -> Tuple[str, str]:
+def period(start_date: Optional[str] = None, date_back: int = None) -> Tuple[str, str]:
     assert not (
         start_date and date_back
     ), "Both start_date and date_back cannot be set at the same time."
@@ -182,6 +181,29 @@ def update_tickers(stocks: Iterable[str]) -> None:
                 f.write(f"{stock}\n")
 
 
+def write_new_portfolio(
+    rebalacing_period=50,
+    path_savefile: str = "portfolio.json",
+    dir_prev_portfolio="prev_portfolio",
+):
+    start_date, end_date = period(date_back=rebalacing_period)
+
+    if os.path.exists(path_savefile):
+        os.makedirs(dir_prev_portfolio, exist_ok=True)
+        shutil.copy(
+            path_savefile,
+            os.path.join(
+                dir_prev_portfolio, f"portfolio_{start_date}_to_{end_date}.json"
+            ),
+        )
+    else:
+        create_portfolio_file(path_savefile)
+
+    generate_portfolio_via_rebalancing(
+        end_date=end_date, rebalacing_period=rebalacing_period
+    )
+
+
 #######################
 ### stock selection ###
 #######################
@@ -222,10 +244,7 @@ def kelly(win_rate: float, net_profit: float, net_loss: float) -> float:
         1.0 * (1 - win_rate) / (net_profit + 1e-6)
     )
 
-    if bet < 0:
-        return 0
-    else:
-        return bet
+    return np.clip(bet, 0, 1)
 
 
 def set_target_weights(
@@ -247,7 +266,9 @@ def set_target_weights(
         # empirical wining rate of the previous period
         pct_ch_sorted = sorted(np.array(pct_ch[ticker]))
         prob_win = np.sum(pct_ch_sorted <= pct_ch[ticker].iloc[-1]) / len(pct_ch_sorted)
-        weights[ticker] = 1 - prob_win
+
+        # reverse optimal weight
+        weights[ticker] = 1 - kelly(win_rate=prob_win, net_profit=1, net_loss=1)
 
     sum_weights_assets = sum(weights.values())
     if sum_weights_assets > 1:
@@ -259,13 +280,24 @@ def set_target_weights(
     return weights
 
 
-def generate_initial_portfolio(start_date, end_date) -> None:
+def generate_initial_portfolio_backtest(start_date, end_date) -> None:
+    target_weights = set_target_weights(start_date, end_date)
+    tickers = [t for t in target_weights.keys() if t != "cash"]
+    write_portfolio(
+        tickers,
+        [target_weights[t] for t in tickers],
+        target_weights["cash"],
+        "portfolio.json",
+    )
+
+
+def create_portfolio_file(path_savefile="portfolio.json"):
     tickers = ticker("assets")
     write_portfolio(
         tickers,
         weight=[0 for t in tickers],
         cash_amount=1,
-        path_savefile="portfolio.json",
+        path_savefile=path_savefile,
     )
 
 
@@ -656,8 +688,8 @@ def append_returns(prev_r: Optional[pd.Series], next_r: pd.Series) -> pd.Series:
 
 def set_dates_backtest(current_date: datetime, rebalacing_period: int) -> Tuple:
     # optimize porfolio with data between [opt_s, opt_e] and test on [test_s, test_e]
-    opt_s = current_date
-    opt_e = current_date + timedelta(days=rebalacing_period)
+    opt_s = current_date - timedelta(days=rebalacing_period)
+    opt_e = current_date
     test_s = opt_e
     test_e = test_s + timedelta(days=rebalacing_period)
     return opt_s, opt_e, test_s, test_e
@@ -702,7 +734,7 @@ def plot_rebalancing_backtest(
 
     period2series = {}
     for rebalacing_period in rebalacing_periods:
-        generate_initial_portfolio(
+        generate_initial_portfolio_backtest(
             start_date - timedelta(days=rebalacing_period), start_date
         )
 
