@@ -413,18 +413,6 @@ def expected_return_from_pct_ch(pct_ch: pd.DataFrame) -> np.ndarray:
     return np.array(pct_ch).mean(axis=0)
 
 
-def cov_mat(yf_df: pd.DataFrame, key="Close") -> np.ndarray:
-    """
-    Args:
-        yf_df: downloaded yahoo finance dataframe (T, N)
-        key: key for the yahoo finance dataframe
-    Returns:
-        N*N numpy array
-    """
-    pct_ch = percent_change(yf_df, key)
-    return cov_mat_from_pct_ch(pct_ch)
-
-
 ############
 ### plot ###
 ############
@@ -610,8 +598,6 @@ def plot_matrix(start_date, target: str, matrix_data: str):
 
     if matrix_data == "correlation":
         data = df["Close"].corr()
-    elif matrix_data == "cov":
-        data = cov_mat(df)
     else:
         raise ValueError(f"Unknown matrix_data {matrix_data}")
 
