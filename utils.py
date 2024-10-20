@@ -87,30 +87,6 @@ def portfolio_return(test_date) -> pd.Series:
     return pd.Series([portfolio_return], index=[test_date], name="Close")
 
 
-# def portfolio_return(
-#     start_date, end_date, has_predecessor: bool, yf_df: pd.DataFrame = None
-# ) -> pd.Series:
-# if has_predecessor:
-#     start_date -= timedelta(days=10)
-
-# if yf_df is None:
-#     df = download_portfolio(start_date, end_date)
-# else:
-#     df = yf_df[(yf_df.index >= start_date) & (yf_df.index <= end_date)]
-
-# portfolio = read_portfolio()
-# portfolio_return = pd.Series(0, index=df["Close"].index, name="Close")
-# for ticker, weight, name in portfolio["weights"]:
-#     portfolio_return += (df["Close"][ticker] / df["Close"][ticker].iloc[0]).fillna(
-#         1
-#     ) * weight
-
-# if "cash" in portfolio:
-#     portfolio_return += portfolio["cash"]
-
-# return portfolio_return
-
-
 ###########
 ### I/O ###
 ###########
@@ -203,7 +179,6 @@ def update_tickers(stocks: Iterable[str]) -> None:
 
 def write_new_portfolio(
     rebalacing_period,
-    asset_open_date="2012-01-01",
     path_savefile: str = "portfolio.json",
     dir_prev_portfolio="prev_portfolio",
 ):
@@ -220,12 +195,9 @@ def write_new_portfolio(
     else:
         create_portfolio_file(end_date, path_savefile)
 
-    yf_df = download_assets(start_date=asset_open_date, end_date=end_date)
-
     generate_portfolio_via_rebalancing(
         end_date=datetime.strptime(end_date, "%Y-%m-%d"),
         rebalacing_period=rebalacing_period,
-        yf_df=yf_df,
         path_savefile=path_savefile,
     )
 
@@ -342,9 +314,6 @@ def set_target_weights(
     key="Close",
     yf_df: pd.DataFrame = None,
 ) -> Dict:
-    # weights = {t:1./len(ticker("assets")) for t in ticker("assets")}
-    # weights["cash"] = 0
-    # return weights
     if isinstance(start_date, str):
         start_date = datetime.strptime(start_date, "%Y-%m-%d")
     if isinstance(end_date, str):
@@ -408,35 +377,14 @@ def generate_portfolio_via_rebalancing(
     transaction_fee_rate: float = 0.005,
     path_savefile: str = "portfolio.json",
 ) -> None:
-    # print(read_portfolio()["cash"] + sum(e[1] for e in read_portfolio()["weights"]))
     portfolio = read_portfolio(path_savefile)
+    start_date = end_date - timedelta(days=rebalacing_period)
+    target_weights = set_target_weights(start_date, end_date, yf_df=yf_df)
+    tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
+        portfolio, target_weights, transaction_fee_rate
+    )
 
-    # update_portfolio = False
-    # if all_cash(portfolio):
-    # update_portfolio = buy_signal(end_date, yf_df)
-    # else:
-    #     if sell_signal(end_date, yf_df):
-    #         tickers, optimal_w, new_cash_amount = sell(portfolio, transaction_fee_rate)
-    #         write_portfolio(
-    #             end_date, tickers, optimal_w, new_cash_amount, path_savefile
-    #         )
-    #     else:
-    #         update_portfolio = (
-    #             end_date - datetime.strptime(portfolio["date_generated"], "%Y-%m-%d")
-    #         ).days >= rebalacing_period
-
-    update_portfolio = (
-        end_date - datetime.strptime(portfolio["date_generated"], "%Y-%m-%d")
-    ).days >= rebalacing_period
-    update_portfolio = True
-    if update_portfolio:
-        start_date = end_date - timedelta(days=rebalacing_period)
-        target_weights = set_target_weights(start_date, end_date, yf_df=yf_df)
-        tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
-            portfolio, target_weights, transaction_fee_rate
-        )
-
-        write_portfolio(end_date, tickers, optimal_w, new_cash_amount, path_savefile)
+    write_portfolio(end_date, tickers, optimal_w, new_cash_amount, path_savefile)
 
 
 def optimize_asset_portfolio_via_rebalancing(
@@ -796,14 +744,6 @@ def append_returns(prev_r: Optional[pd.Series], next_r: pd.Series) -> pd.Series:
         return next_r
     else:
         return pd.concat([prev_r, next_r])
-        # prev_last_r = prev_r.iloc[-1]
-        # prev_last_date = prev_r.index[-1]
-        # return pd.concat(
-        #     [
-        #         prev_r[:-1],
-        #         (next_r[prev_last_date:] * prev_last_r / next_r[prev_last_date]),
-        #     ]
-        # )
 
 
 def set_dates_backtest(current_date: datetime, rebalacing_period: int) -> Tuple:
@@ -870,26 +810,19 @@ def plot_rebalancing_backtest(
         )
 
         portfolio_returns = pd.Series([1], index=[start_date], name="Close")
-        # while current_date + timedelta(days=2 * rebalacing_period) <= end_date:
-        #     opt_s, opt_e, test_s, test_e = set_dates_backtest(
-        #         current_date, rebalacing_period
-        #     )
 
         test_date = start_date + timedelta(days=1)
         while test_date <= end_date:
             if sum(test_date == yf_df["Close"].index) > 0:
-                generate_portfolio_via_rebalancing(
-                    end_date=test_date - timedelta(days=1),
-                    rebalacing_period=rebalacing_period,
-                    yf_df=yf_df[yf_df.index <= test_date - timedelta(days=1)],
-                )
-
-                # pf_r = portfolio_return(
-                #     test_date,
-                #     test_date + timedelta(days=1),
-                #     portfolio_returns is not None,
-                #     yf_df=yf_df,
-                # )
+                if (
+                    test_date
+                    - datetime.strptime(read_portfolio()["date_generated"], "%Y-%m-%d")
+                ).days >= rebalacing_period:
+                    generate_portfolio_via_rebalancing(
+                        end_date=test_date - timedelta(days=1),
+                        rebalacing_period=rebalacing_period,
+                        yf_df=yf_df[yf_df.index <= test_date - timedelta(days=1)],
+                    )
 
                 simulate_market(yf_df, test_date)
 
@@ -897,8 +830,6 @@ def plot_rebalancing_backtest(
                 portfolio_returns = append_returns(portfolio_returns, pf_r)
 
             test_date += timedelta(days=1)
-
-            # current_date += timedelta(days=rebalacing_period)
 
         period2series[rebalacing_period] = portfolio_returns
 
