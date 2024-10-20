@@ -81,22 +81,34 @@ def benchmark_return(benchmark: str, start_date, end_date) -> pd.Series:
     return (df_benchmark["Close"].pct_change().fillna(0) + 1).cumprod().dropna()
 
 
-def portfolio_return(start_date, end_date, has_predecessor: bool) -> pd.Series:
-    if has_predecessor:
-        start_date -= timedelta(days=10)
-    df = download_portfolio(start_date, end_date)
-
+def portfolio_return(test_date) -> pd.Series:
     portfolio = read_portfolio()
-    portfolio_return = pd.Series(0, index=df["Close"].index, name="Close")
-    for ticker, weight, name in portfolio["weights"]:
-        portfolio_return += (df["Close"][ticker] / df["Close"][ticker].iloc[0]).fillna(
-            1
-        ) * weight
+    portfolio_return = portfolio["cash"] + sum(e[1] for e in portfolio["weights"])
+    return pd.Series([portfolio_return], index=[test_date], name="Close")
 
-    if "cash" in portfolio:
-        portfolio_return += portfolio["cash"]
 
-    return portfolio_return
+# def portfolio_return(
+#     start_date, end_date, has_predecessor: bool, yf_df: pd.DataFrame = None
+# ) -> pd.Series:
+# if has_predecessor:
+#     start_date -= timedelta(days=10)
+
+# if yf_df is None:
+#     df = download_portfolio(start_date, end_date)
+# else:
+#     df = yf_df[(yf_df.index >= start_date) & (yf_df.index <= end_date)]
+
+# portfolio = read_portfolio()
+# portfolio_return = pd.Series(0, index=df["Close"].index, name="Close")
+# for ticker, weight, name in portfolio["weights"]:
+#     portfolio_return += (df["Close"][ticker] / df["Close"][ticker].iloc[0]).fillna(
+#         1
+#     ) * weight
+
+# if "cash" in portfolio:
+#     portfolio_return += portfolio["cash"]
+
+# return portfolio_return
 
 
 ###########
@@ -135,6 +147,10 @@ def ticker2name(category: str) -> Dict:
         raise ValueError("Unknown category.")
 
 
+def portfolio_start_date() -> Dict:
+    return json.load(open("portfolio.json"))["date_generated"]
+
+
 def find_ticker(keyword):
     if keyword == "s&p":
         return "SPY"
@@ -149,6 +165,7 @@ def find_ticker(keyword):
 
 
 def write_portfolio(
+    date_generated,
     tickers: List[str],
     weight: np.ndarray,
     cash_amount: float,
@@ -161,6 +178,9 @@ def write_portfolio(
     t2n = ticker2name("assets")
 
     data = {
+        "date_generated": date_generated
+        if isinstance(date_generated, str)
+        else date_generated.strftime("%Y-%m-%d"),
         "cash": cash_amount,
         "weights": [(t, w, t2n[t]) for t, w in zip(tickers, weight)],
     }
@@ -182,7 +202,8 @@ def update_tickers(stocks: Iterable[str]) -> None:
 
 
 def write_new_portfolio(
-    rebalacing_period=50,
+    rebalacing_period,
+    asset_open_date="2012-01-01",
     path_savefile: str = "portfolio.json",
     dir_prev_portfolio="prev_portfolio",
 ):
@@ -197,11 +218,14 @@ def write_new_portfolio(
             ),
         )
     else:
-        create_portfolio_file(path_savefile)
+        create_portfolio_file(end_date, path_savefile)
+
+    yf_df = download_assets(start_date=asset_open_date, end_date=end_date)
 
     generate_portfolio_via_rebalancing(
-        end_date=end_date,
+        end_date=datetime.strptime(end_date, "%Y-%m-%d"),
         rebalacing_period=rebalacing_period,
+        yf_df=yf_df,
         path_savefile=path_savefile,
     )
 
@@ -249,19 +273,89 @@ def kelly(win_rate: float, net_profit: float, net_loss: float) -> float:
     return np.clip(bet, 0, 1)
 
 
+def all_cash(portfolio: Dict):
+    return all(e[1] < 1e-6 for e in portfolio["weights"])
+
+
+def sell_signal(end_date, yf_df: pd.DataFrame, key="Close"):
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+
+    if yf_df is None:
+        df = download_assets(start_date=asset_open_date, end_date=end_date)
+    else:
+        df = yf_df[
+            (yf_df.index >= end_date - timedelta(days=50)) & (yf_df.index <= end_date)
+        ]
+
+    df_ma5 = df["Close"].iloc[-30:].rolling(window=5).mean().dropna()
+    df_ma10 = df["Close"].iloc[-30:].rolling(window=10).mean().dropna()
+    df_ma20 = df["Close"].iloc[-30:].rolling(window=20).mean().dropna()
+
+    return any(
+        df_ma5[ticker].diff(periods=1).iloc[-1] < 0
+        and df_ma10[ticker].diff(periods=1).iloc[-1] < 0
+        and df_ma20[ticker].diff(periods=1).iloc[-1] < 0
+        for ticker in df[key].columns
+    )
+
+
+def buy_signal(end_date, yf_df: pd.DataFrame, key="Close"):
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+
+    if yf_df is None:
+        df = download_assets(start_date=asset_open_date, end_date=end_date)
+    else:
+        df = yf_df[
+            (yf_df.index >= end_date - timedelta(days=50)) & (yf_df.index <= end_date)
+        ]
+
+    df_ma5 = df["Close"].iloc[-30:].rolling(window=5).mean().dropna()
+    df_ma10 = df["Close"].iloc[-30:].rolling(window=10).mean().dropna()
+    df_ma20 = df["Close"].iloc[-30:].rolling(window=20).mean().dropna()
+
+    return any(
+        df_ma5[ticker].diff(periods=1).iloc[-1] > 0
+        and df_ma10[ticker].diff(periods=1).iloc[-1] > 0
+        for ticker in df[key].columns
+    )
+
+
+def sell(portfolio: Dict, transaction_fee_rate, key="Close") -> Dict:
+    tickers = ticker("assets")
+    optimal_w = [0] * len(tickers)
+
+    cash_amount = portfolio["cash"]
+    t2w = {e[0]: e[1] for e in portfolio["weights"]}
+    total = sum(t2w.values()) + cash_amount
+
+    cash = cash_amount + (total - cash_amount) / (1 + transaction_fee_rate)
+
+    return tickers, optimal_w, cash
+
+
 def set_target_weights(
-    start_date, end_date, asset_open_date="2012-01-01", max_loss=0.3, key="Close"
+    start_date,
+    end_date,
+    asset_open_date="2012-01-01",
+    key="Close",
+    yf_df: pd.DataFrame = None,
 ) -> Dict:
+    # weights = {t:1./len(ticker("assets")) for t in ticker("assets")}
+    # weights["cash"] = 0
+    # return weights
     if isinstance(start_date, str):
         start_date = datetime.strptime(start_date, "%Y-%m-%d")
     if isinstance(end_date, str):
         end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
-    df = download_assets(start_date=asset_open_date, end_date=end_date)
+    if yf_df is None:
+        df = download_assets(start_date=asset_open_date, end_date=end_date)
+    else:
+        df = yf_df[(yf_df.index >= asset_open_date) & (yf_df.index <= end_date)]
 
-    period = (end_date - start_date).days
-
-    pct_ch = percent_change(df, periods=period, fillna_zero=False)
+    pct_ch = percent_change(df, periods=(end_date - start_date).days, fillna_zero=False)
 
     weights = {}
     for ticker in df[key].columns:
@@ -282,10 +376,13 @@ def set_target_weights(
     return weights
 
 
-def generate_initial_portfolio_backtest(start_date, end_date) -> None:
-    target_weights = set_target_weights(start_date, end_date)
+def generate_initial_portfolio_backtest(
+    start_date, end_date, yf_df: pd.DataFrame = None
+) -> None:
+    target_weights = set_target_weights(start_date, end_date, yf_df=yf_df)
     tickers = [t for t in target_weights.keys() if t != "cash"]
     write_portfolio(
+        end_date,
         tickers,
         [target_weights[t] for t in tickers],
         target_weights["cash"],
@@ -293,9 +390,10 @@ def generate_initial_portfolio_backtest(start_date, end_date) -> None:
     )
 
 
-def create_portfolio_file(path_savefile="portfolio.json"):
+def create_portfolio_file(date, path_savefile="portfolio.json"):
     tickers = ticker("assets")
     write_portfolio(
+        date,
         tickers,
         weight=[0 for t in tickers],
         cash_amount=1,
@@ -306,53 +404,69 @@ def create_portfolio_file(path_savefile="portfolio.json"):
 def generate_portfolio_via_rebalancing(
     end_date,
     rebalacing_period: int,
+    yf_df: pd.DataFrame = None,
     transaction_fee_rate: float = 0.005,
     path_savefile: str = "portfolio.json",
 ) -> None:
-    if isinstance(end_date, str):
-        end_date = datetime.strptime(end_date, "%Y-%m-%d")
-    start_date = end_date - timedelta(days=rebalacing_period)
+    # print(read_portfolio()["cash"] + sum(e[1] for e in read_portfolio()["weights"]))
+    portfolio = read_portfolio(path_savefile)
 
-    df = download_assets(start_date=start_date, end_date=end_date)
+    # update_portfolio = False
+    # if all_cash(portfolio):
+    # update_portfolio = buy_signal(end_date, yf_df)
+    # else:
+    #     if sell_signal(end_date, yf_df):
+    #         tickers, optimal_w, new_cash_amount = sell(portfolio, transaction_fee_rate)
+    #         write_portfolio(
+    #             end_date, tickers, optimal_w, new_cash_amount, path_savefile
+    #         )
+    #     else:
+    #         update_portfolio = (
+    #             end_date - datetime.strptime(portfolio["date_generated"], "%Y-%m-%d")
+    #         ).days >= rebalacing_period
 
-    target_weights = set_target_weights(start_date, end_date)
+    update_portfolio = (
+        end_date - datetime.strptime(portfolio["date_generated"], "%Y-%m-%d")
+    ).days >= rebalacing_period
+    update_portfolio = True
+    if update_portfolio:
+        start_date = end_date - timedelta(days=rebalacing_period)
+        target_weights = set_target_weights(start_date, end_date, yf_df=yf_df)
+        tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
+            portfolio, target_weights, transaction_fee_rate
+        )
 
-    prev_portfolio = read_portfolio(path_savefile)
-
-    tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
-        df, prev_portfolio, target_weights, transaction_fee_rate
-    )
-
-    write_portfolio(tickers, optimal_w, new_cash_amount, path_savefile)
+        write_portfolio(end_date, tickers, optimal_w, new_cash_amount, path_savefile)
 
 
 def optimize_asset_portfolio_via_rebalancing(
-    df: pd.DataFrame,
     portfolio: Dict,
     target_weights: Iterable[float],
     transaction_fee_rate: float,
     key="Close",
 ) -> Tuple:
+    assert abs(sum(target_weights.values()) - 1) < 1e-6
+
     cash_amount = portfolio["cash"]
     t2w = {e[0]: e[1] for e in portfolio["weights"]}
-
-    df_return = df[key].iloc[-1] / df[key].iloc[0]
-
-    tickers = list(df_return.index)
-    t2r = {ticker: df_return[ticker] * t2w[ticker] for ticker in tickers}
-    total = sum(t2r.values()) + cash_amount
+    total = sum(t2w.values()) + cash_amount
 
     optimal_w = []
-    for ticker in tickers:
-        new_weight = target_weights[ticker] * total / df_return[ticker]
-        new_weight /= (
-            1 + transaction_fee_rate
-        )  # compensate for transaction fee by reducing weight
+    for ticker in t2w.keys():
+        new_weight = target_weights[ticker] * total
+        if new_weight > t2w[ticker]:
+            new_weight = t2w[ticker] + (new_weight - t2w[ticker]) / (
+                1 + transaction_fee_rate
+            )  # compensate for transaction fee by reducing weight
         optimal_w.append(new_weight)
 
-    curr_cash_amount = total * target_weights["cash"]
+    new_cash_amount = total * target_weights["cash"]
+    if new_cash_amount > cash_amount:
+        new_cash_amount = cash_amount + (new_cash_amount - cash_amount) / (
+            1 + transaction_fee_rate
+        )
 
-    return tickers, optimal_w, curr_cash_amount
+    return t2w.keys(), optimal_w, new_cash_amount
 
 
 def optimize_asset_portfolio_via_equal_weight(
@@ -411,6 +525,24 @@ def expected_return(yf_df: pd.DataFrame, key="Close") -> np.ndarray:
 
 def expected_return_from_pct_ch(pct_ch: pd.DataFrame) -> np.ndarray:
     return np.array(pct_ch).mean(axis=0)
+
+
+def simulate_market(yf_df: pd.DataFrame, eval_date, key="Close"):
+    """Update portfolio based on market results on eval_date"""
+    dday = yf_df.iloc[np.where(yf_df.index == eval_date)[0][0]]
+    prev_day = yf_df.iloc[np.where(yf_df.index == eval_date)[0][0] - 1]
+
+    portfolio = read_portfolio()
+    t2w = {e[0]: e[1] for e in portfolio["weights"]}
+    for ticker in t2w.keys():
+        t2w[ticker] *= dday[key][ticker] / prev_day[key][ticker]
+
+    write_portfolio(
+        portfolio["date_generated"],
+        list(t2w.keys()),
+        list(t2w.values()),
+        portfolio["cash"],
+    )
 
 
 ############
@@ -477,8 +609,10 @@ def plot_return_leverage_with_ma(
     df = download(tickers, start_date, end_date)
 
     plt.close()
-    plt.figure(figsize=(16, 12))
+    plt.figure(figsize=(20, 15))
     df_return = yf_return(df)
+    df_ma5 = df["Close"].rolling(window=5).mean().dropna()
+    df_ma5 /= df_ma5.iloc[0]
     df_ma10 = df["Close"].rolling(window=10).mean().dropna()
     df_ma10 /= df_ma10.iloc[0]
     df_ma20 = df["Close"].rolling(window=20).mean().dropna()
@@ -486,6 +620,7 @@ def plot_return_leverage_with_ma(
 
     for ticker in tickers:
         plt.plot(df_return[ticker].index, list(df_return[ticker]), label=ticker)
+        plt.plot(df_ma5[ticker].index, list(df_ma5[ticker]), label=ticker + "_ma5")
         plt.plot(df_ma10[ticker].index, list(df_ma10[ticker]), label=ticker + "_ma10")
         plt.plot(df_ma20[ticker].index, list(df_ma20[ticker]), label=ticker + "_ma20")
 
@@ -660,14 +795,15 @@ def append_returns(prev_r: Optional[pd.Series], next_r: pd.Series) -> pd.Series:
     if prev_r is None:
         return next_r
     else:
-        prev_last_r = prev_r.iloc[-1]
-        prev_last_date = prev_r.index[-1]
-        return pd.concat(
-            [
-                prev_r[:-1],
-                (next_r[prev_last_date:] * prev_last_r / next_r[prev_last_date]),
-            ]
-        )
+        return pd.concat([prev_r, next_r])
+        # prev_last_r = prev_r.iloc[-1]
+        # prev_last_date = prev_r.index[-1]
+        # return pd.concat(
+        #     [
+        #         prev_r[:-1],
+        #         (next_r[prev_last_date:] * prev_last_r / next_r[prev_last_date]),
+        #     ]
+        # )
 
 
 def set_dates_backtest(current_date: datetime, rebalacing_period: int) -> Tuple:
@@ -677,6 +813,12 @@ def set_dates_backtest(current_date: datetime, rebalacing_period: int) -> Tuple:
     test_s = opt_e
     test_e = test_s + timedelta(days=rebalacing_period)
     return opt_s, opt_e, test_s, test_e
+
+
+def get_benchmark_start_date(dict_benchmark):
+    df_benchmark = pd.DataFrame(dict_benchmark)
+    df_benchmark.dropna(inplace=True)
+    return df_benchmark.index[0].to_pydatetime()
 
 
 def get_benchmark_data_backtest(start_date, end_date):
@@ -710,34 +852,53 @@ def plot_rebalancing_backtest(
     start_date,
     end_date,
     rebalacing_periods: List[int] = [10, 20, 50, 100, 200],
-    transaction_fee_rate: float = 0.005,
+    asset_open_date="2012-01-01",
     path_savefile: str = "backtest.png",
 ) -> None:
     start_date = datetime.strptime(start_date, "%Y-%m-%d")
     end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
+    dict_benchmark = get_benchmark_data_backtest(start_date, end_date)
+    start_date = get_benchmark_start_date(dict_benchmark)
+
+    yf_df = download_assets(start_date=asset_open_date, end_date=end_date)
+
     period2series = {}
     for rebalacing_period in rebalacing_periods:
         generate_initial_portfolio_backtest(
-            start_date - timedelta(days=rebalacing_period), start_date
+            start_date - timedelta(days=rebalacing_period), start_date, yf_df=yf_df
         )
 
-        portfolio_returns = None
-        current_date = start_date
-        while current_date + timedelta(days=2 * rebalacing_period) <= end_date:
-            opt_s, opt_e, test_s, test_e = set_dates_backtest(
-                current_date, rebalacing_period
-            )
+        portfolio_returns = pd.Series([1], index=[start_date], name="Close")
+        # while current_date + timedelta(days=2 * rebalacing_period) <= end_date:
+        #     opt_s, opt_e, test_s, test_e = set_dates_backtest(
+        #         current_date, rebalacing_period
+        #     )
 
-            generate_portfolio_via_rebalancing(
-                end_date=opt_e, rebalacing_period=rebalacing_period
-            )
+        test_date = start_date + timedelta(days=1)
+        while test_date <= end_date:
+            if sum(test_date == yf_df["Close"].index) > 0:
+                generate_portfolio_via_rebalancing(
+                    end_date=test_date - timedelta(days=1),
+                    rebalacing_period=rebalacing_period,
+                    yf_df=yf_df[yf_df.index <= test_date - timedelta(days=1)],
+                )
 
-            pf_r = portfolio_return(test_s, test_e, portfolio_returns is not None)
+                # pf_r = portfolio_return(
+                #     test_date,
+                #     test_date + timedelta(days=1),
+                #     portfolio_returns is not None,
+                #     yf_df=yf_df,
+                # )
 
-            portfolio_returns = append_returns(portfolio_returns, pf_r)
+                simulate_market(yf_df, test_date)
 
-            current_date += timedelta(days=rebalacing_period)
+                pf_r = portfolio_return(test_date)
+                portfolio_returns = append_returns(portfolio_returns, pf_r)
+
+            test_date += timedelta(days=1)
+
+            # current_date += timedelta(days=rebalacing_period)
 
         period2series[rebalacing_period] = portfolio_returns
 
@@ -745,7 +906,7 @@ def plot_rebalancing_backtest(
 
     plt.close()
     data = {f"portfolio_update_{p}": s for p, s in period2series.items()}
-    data.update(get_benchmark_data_backtest(start_date, end_date))
+    data.update(dict_benchmark)
     df_return = pd.DataFrame(data)
     df_return.plot(figsize=(16, 8))
     plt.savefig(path_savefile)
