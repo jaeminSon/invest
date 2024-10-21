@@ -417,16 +417,6 @@ def optimize_asset_portfolio_via_rebalancing(
     return t2w.keys(), optimal_w, new_cash_amount
 
 
-def optimize_asset_portfolio_via_equal_weight(
-    df: pd.DataFrame, key="Close", return_samples: bool = False
-) -> Tuple:
-    df_return = yf_return(df)
-    tickers = df_return.columns
-    optimal_w = np.array([1.0 / df_return[t].iloc[-1] for t in tickers])
-    optimal_w /= optimal_w.sum()
-    return tickers, optimal_w, -1, -1
-
-
 def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
     """
     Args:
