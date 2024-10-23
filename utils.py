@@ -6,6 +6,7 @@ import shutil
 import json
 
 import numpy as np
+import scipy
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,21 +19,21 @@ import yfinance as yf
 def download_SandP(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     if end_date is None:
         start_date, end_date = period(start_date)
-    tickers = ticker("s&p500")
+    tickers = get_ticker("s&p500")
     return download(tickers, start_date, end_date)
 
 
 def download_assets(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     if end_date is None:
         start_date, end_date = period(start_date)
-    tickers = ticker("assets")
+    tickers = get_ticker("assets")
     return download(tickers, start_date, end_date)
 
 
 def download_sectors(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     if end_date is None:
         start_date, end_date = period(start_date)
-    tickers = ticker("sectors")
+    tickers = get_ticker("sectors")
     return download(tickers, start_date, end_date)
 
 
@@ -90,7 +91,7 @@ def portfolio_return(test_date) -> pd.Series:
 ###########
 ### I/O ###
 ###########
-def ticker(category: str) -> List:
+def get_ticker(category: str) -> List:
     if category.lower() == "s&p500":
         ssl._create_default_https_context = ssl._create_unverified_context
         tickers = pd.read_html(
@@ -197,7 +198,6 @@ def write_new_portfolio(
 
     generate_portfolio_via_rebalancing(
         end_date=datetime.strptime(end_date, "%Y-%m-%d"),
-        rebalacing_period=rebalacing_period,
         path_savefile=path_savefile,
     )
 
@@ -257,19 +257,18 @@ def sell_signal(end_date, yf_df: pd.DataFrame, key="Close"):
         df = download_assets(start_date=asset_open_date, end_date=end_date)
     else:
         df = yf_df[
-            (yf_df.index >= end_date - timedelta(days=50)) & (yf_df.index <= end_date)
+            (yf_df.index >= end_date - timedelta(days=200)) & (yf_df.index <= end_date)
         ]
 
-    df_ma5 = df["Close"].iloc[-30:].rolling(window=5).mean().dropna()
-    df_ma10 = df["Close"].iloc[-30:].rolling(window=10).mean().dropna()
-    df_ma20 = df["Close"].iloc[-30:].rolling(window=20).mean().dropna()
+    df_ma100 = df[key].rolling(window=100).mean().dropna()
+    for ticker in df[key].columns:
+        if (
+            sum(df_ma100[ticker].diff(periods=1)[-5:] <= 0) >= 4
+            and sum(df_ma100[ticker].diff(periods=1).diff(periods=1)[-5:] <= 0) >= 4
+        ):
+            return True
 
-    return any(
-        df_ma5[ticker].diff(periods=1).iloc[-1] < 0
-        and df_ma10[ticker].diff(periods=1).iloc[-1] < 0
-        and df_ma20[ticker].diff(periods=1).iloc[-1] < 0
-        for ticker in df[key].columns
-    )
+    return False
 
 
 def buy_signal(end_date, yf_df: pd.DataFrame, key="Close"):
@@ -280,22 +279,22 @@ def buy_signal(end_date, yf_df: pd.DataFrame, key="Close"):
         df = download_assets(start_date=asset_open_date, end_date=end_date)
     else:
         df = yf_df[
-            (yf_df.index >= end_date - timedelta(days=50)) & (yf_df.index <= end_date)
+            (yf_df.index >= end_date - timedelta(days=365)) & (yf_df.index <= end_date)
         ]
 
-    df_ma5 = df["Close"].iloc[-30:].rolling(window=5).mean().dropna()
-    df_ma10 = df["Close"].iloc[-30:].rolling(window=10).mean().dropna()
-    df_ma20 = df["Close"].iloc[-30:].rolling(window=20).mean().dropna()
+    df_ma100 = df[key].rolling(window=100).mean().dropna()
+    for ticker in df[key].columns:
+        if (
+            sum(df_ma100[ticker].diff(periods=1)[-5:] >= 0) >= 3
+            and sum(df_ma100[ticker].diff(periods=1).diff(periods=1)[-5:] >= 0) >= 3
+        ):
+            return True
 
-    return any(
-        df_ma5[ticker].diff(periods=1).iloc[-1] > 0
-        and df_ma10[ticker].diff(periods=1).iloc[-1] > 0
-        for ticker in df[key].columns
-    )
+    return False
 
 
-def sell(portfolio: Dict, transaction_fee_rate, key="Close") -> Dict:
-    tickers = ticker("assets")
+def sell(portfolio: Dict, transaction_fee_rate) -> Dict:
+    tickers = get_ticker("assets")
     optimal_w = [0] * len(tickers)
 
     cash_amount = portfolio["cash"]
@@ -307,15 +306,39 @@ def sell(portfolio: Dict, transaction_fee_rate, key="Close") -> Dict:
     return tickers, optimal_w, cash
 
 
+def compute_win_rate(yf_df: pd.DataFrame, ticker: str) -> float:
+    # empirical wining rate of the previous period
+    list_prob_win = []
+    for window in [10, 20, 50, 100]:
+        pct_ch = percent_change(yf_df, periods=window, fillna_zero=False)
+        pct_ch_sorted = sorted(np.array(pct_ch[ticker]))
+        prob_win = np.sum(pct_ch_sorted <= pct_ch[ticker].iloc[-1]) / len(pct_ch_sorted)
+        list_prob_win.append(prob_win)
+    return np.mean(list_prob_win)
+
+
+def compute_confidence(yf_df: pd.DataFrame, ticker: str, key="Close"):
+    list_confidence = []
+    for window in [10, 20, 50, 100]:
+        df_ma = yf_df[key].rolling(window=window).mean().dropna()
+        confidence = sum(
+            np.array(df_ma[ticker].diff(periods=1)[-window:] >= 0)
+            * linear_weight(window)
+        )
+        list_confidence.append(confidence)
+    return np.mean(list_confidence)
+
+
+def linear_weight(length):
+    return np.arange(length) / sum(np.arange(length))
+
+
 def set_target_weights(
-    start_date,
     end_date,
-    asset_open_date="2012-01-01",
+    asset_open_date="2010-04-01",
     key="Close",
     yf_df: pd.DataFrame = None,
 ) -> Dict:
-    if isinstance(start_date, str):
-        start_date = datetime.strptime(start_date, "%Y-%m-%d")
     if isinstance(end_date, str):
         end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
@@ -324,16 +347,20 @@ def set_target_weights(
     else:
         df = yf_df[(yf_df.index >= asset_open_date) & (yf_df.index <= end_date)]
 
-    pct_ch = percent_change(df, periods=(end_date - start_date).days, fillna_zero=False)
-
     weights = {}
     for ticker in df[key].columns:
-        # empirical wining rate of the previous period
-        pct_ch_sorted = sorted(np.array(pct_ch[ticker]))
-        prob_win = np.sum(pct_ch_sorted <= pct_ch[ticker].iloc[-1]) / len(pct_ch_sorted)
+        prob_win = compute_win_rate(df, ticker)
 
-        # reverse optimal weight
-        weights[ticker] = 1 - kelly(win_rate=prob_win, net_profit=1, net_loss=1)
+        # reversed optimal weight == 2*(1-prob_win)
+        bet_ratio = 1 - kelly(
+            win_rate=prob_win,
+            net_profit=1,
+            net_loss=1,
+        )
+
+        confidence = compute_confidence(df, ticker)
+
+        weights[ticker] = bet_ratio * confidence
 
     sum_weights_assets = sum(weights.values())
     if sum_weights_assets > 1:
@@ -345,22 +372,20 @@ def set_target_weights(
     return weights
 
 
-def generate_initial_portfolio_backtest(
-    start_date, end_date, yf_df: pd.DataFrame = None
-) -> None:
-    target_weights = set_target_weights(start_date, end_date, yf_df=yf_df)
+def generate_initial_portfolio_backtest(end_date, yf_df: pd.DataFrame = None) -> None:
+    target_weights = set_target_weights(end_date, yf_df=yf_df)
     tickers = [t for t in target_weights.keys() if t != "cash"]
     write_portfolio(
         end_date,
         tickers,
         [target_weights[t] for t in tickers],
         target_weights["cash"],
-        "portfolio.json",
+        path_savefile="portfolio.json",
     )
 
 
 def create_portfolio_file(date, path_savefile="portfolio.json"):
-    tickers = ticker("assets")
+    tickers = get_ticker("assets")
     write_portfolio(
         date,
         tickers,
@@ -372,15 +397,19 @@ def create_portfolio_file(date, path_savefile="portfolio.json"):
 
 def generate_portfolio_via_rebalancing(
     end_date,
-    rebalacing_period: int,
     yf_df: pd.DataFrame = None,
     transaction_fee_rate: float = 0.005,
     path_savefile: str = "portfolio.json",
 ) -> None:
     portfolio = read_portfolio(path_savefile)
-    start_date = end_date - timedelta(days=rebalacing_period)
-    target_weights = set_target_weights(start_date, end_date, yf_df=yf_df)
-    tickers, optimal_w, new_cash_amount = optimize_asset_portfolio_via_rebalancing(
+
+    target_weights = set_target_weights(end_date, yf_df=yf_df)
+
+    (
+        tickers,
+        optimal_w,
+        new_cash_amount,
+    ) = optimize_asset_portfolio_via_rebalancing(
         portfolio, target_weights, transaction_fee_rate
     )
 
@@ -391,7 +420,6 @@ def optimize_asset_portfolio_via_rebalancing(
     portfolio: Dict,
     target_weights: Iterable[float],
     transaction_fee_rate: float,
-    key="Close",
 ) -> Tuple:
     assert abs(sum(target_weights.values()) - 1) < 1e-6
 
@@ -417,6 +445,72 @@ def optimize_asset_portfolio_via_rebalancing(
     return t2w.keys(), optimal_w, new_cash_amount
 
 
+def cov_mat_from_pct_ch(pct_ch: pd.DataFrame) -> np.ndarray:
+    return np.array(pct_ch.cov())
+
+
+def compute_return_volatility(
+    pct_ch: pd.DataFrame,
+) -> Tuple[List, np.ndarray, np.ndarray]:
+    tickers = list(pct_ch.columns)
+    r = expected_return_from_pct_ch(pct_ch)
+    cov = cov_mat_from_pct_ch(pct_ch)
+
+    # check the order of columns
+    assert all((pct_ch[t].mean() - r[i]) < 1e-6 for i, t in enumerate(tickers))
+    assert all((pct_ch[t].var() - cov[i, i]) < 1e-6 for i, t in enumerate(tickers))
+
+    return tickers, r, cov
+
+
+def random_portfolio(
+    ret: np.ndarray, cov_mat: np.ndarray, N=10_000
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    np.random.seed(0)
+
+    weights = np.random.random((N, len(ret)))
+    weights /= np.sum(weights, axis=1, keepdims=True)
+
+    returns = np.array([w.T @ ret for w in weights])
+
+    volatilities = np.sqrt([w.T @ cov_mat @ w for w in weights])
+
+    return weights, returns, volatilities
+
+
+def optimize_asset_portfolio_via_sampling(
+    df: pd.DataFrame, key="Close", return_samples: bool = False
+) -> Tuple:
+    pct_ch = percent_change(df, key)
+    pct_ch_filted = pct_ch
+    # pct_ch_filted = filter_assets(pct_ch)
+
+    tickers, r, cov = compute_return_volatility(pct_ch_filted)
+
+    random_w, random_r, random_v = random_portfolio(r, cov)
+
+    random_sharpe = random_r / random_v
+    index_opt = np.argmax(random_sharpe)
+    optimal_w = random_w[index_opt]
+    optimal_v = random_v[index_opt]
+    optimal_r = random_r[index_opt]
+    assert abs(optimal_w.T @ r - optimal_r) < 1e-6
+    assert abs(np.sqrt(optimal_w.T @ cov @ optimal_w) - optimal_v) < 1e-6
+
+    if return_samples:
+        return (
+            tickers,
+            optimal_w,
+            optimal_r,
+            optimal_v,
+            random_r,
+            random_v,
+            random_sharpe,
+        )
+    else:
+        return tickers, optimal_w, optimal_r, optimal_v
+
+
 def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
     """
     Args:
@@ -428,6 +522,14 @@ def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
     return [e + [e[1] * total_budget] for e in pf["weights"]]
 
 
+def need_to_update_portfolio(date: datetime.date, rebalacing_period: int):
+    portfolio = read_portfolio()
+    stale = (
+        date - datetime.strptime(portfolio["date_generated"], "%Y-%m-%d")
+    ).days >= rebalacing_period
+    return stale or all_cash(portfolio)
+
+
 ###############
 ### Utility ###
 ###############
@@ -437,6 +539,9 @@ def percent_change(
     if fillna_zero:
         return (
             yf_df[key]
+            .rolling(window=periods)
+            .mean()
+            .dropna()
             .pct_change(periods=periods)
             .fillna(0)
             .dropna(axis=1, how="all")
@@ -445,6 +550,9 @@ def percent_change(
     else:
         return (
             yf_df[key]
+            .rolling(window=periods)
+            .mean()
+            .dropna()
             .pct_change(periods=periods)
             .dropna(axis=1, how="all")
             .dropna(axis=0)
@@ -549,18 +657,48 @@ def plot_return_leverage_with_ma(
     plt.close()
     plt.figure(figsize=(20, 15))
     df_return = yf_return(df)
-    df_ma5 = df["Close"].rolling(window=5).mean().dropna()
-    df_ma5 /= df_ma5.iloc[0]
-    df_ma10 = df["Close"].rolling(window=10).mean().dropna()
-    df_ma10 /= df_ma10.iloc[0]
+    # df_ma5 = df["Close"].rolling(window=5).mean().dropna()
+    # df_ma5 /= df_ma5.iloc[0]
+    # df_ma10 = df["Close"].rolling(window=10).mean().dropna()
+    # df_ma10 /= df_ma10.iloc[0]
     df_ma20 = df["Close"].rolling(window=20).mean().dropna()
     df_ma20 /= df_ma20.iloc[0]
+    df_ma50 = df["Close"].rolling(window=50).mean().dropna()
+    df_ma50 /= df_ma50.iloc[0]
+    df_ma100 = df["Close"].rolling(window=100).mean().dropna()
+    df_ma100 /= df_ma100.iloc[0]
+    df_ma200 = df["Close"].rolling(window=200).mean().dropna()
+    df_ma200 /= df_ma200.iloc[0]
 
     for ticker in tickers:
         plt.plot(df_return[ticker].index, list(df_return[ticker]), label=ticker)
-        plt.plot(df_ma5[ticker].index, list(df_ma5[ticker]), label=ticker + "_ma5")
-        plt.plot(df_ma10[ticker].index, list(df_ma10[ticker]), label=ticker + "_ma10")
-        plt.plot(df_ma20[ticker].index, list(df_ma20[ticker]), label=ticker + "_ma20")
+        # plt.plot(df_ma5[ticker].index, list(df_ma5[ticker]), label=ticker + "_ma5")
+        # plt.plot(df_ma10[ticker].index, list(df_ma10[ticker]), label=ticker + "_ma10")
+        # plt.plot(df_ma20[ticker].index, list(df_ma20[ticker]), label=ticker + "_ma20")
+        # plt.plot(df_ma50[ticker].index, list(df_ma50[ticker]), label=ticker + "_ma50")
+        plt.plot(
+            df_ma100[ticker].index, list(df_ma100[ticker]), label=ticker + "_ma100"
+        )
+        # plt.plot(df_ma200[ticker].index, list(df_ma200[ticker]), label=ticker + "_ma200")
+
+        peaks = scipy.signal.find_peaks(df_ma100[ticker], width=1, rel_height=0.01)[0]
+        bottomes = scipy.signal.find_peaks(-df_ma100[ticker], width=1, rel_height=0.01)[
+            0
+        ]
+        plt.scatter(
+            [df_ma100[ticker].index[p] for p in peaks],
+            [df_ma100[ticker].iloc[p] for p in peaks],
+            color="r",
+            marker="v",
+            s=30,
+        )
+        plt.scatter(
+            [df_ma100[ticker].index[p] for p in bottomes],
+            [df_ma100[ticker].iloc[p] for p in bottomes],
+            color="b",
+            marker="v",
+            s=30,
+        )
 
     plt.xlabel("Date")
     plt.ylabel("Return")
@@ -656,11 +794,11 @@ def plot_matrix(start_date, target: str, matrix_data: str):
     start_date, end_date = period(start_date)
 
     if target == "assets":
-        tickers = ticker("assets")
+        tickers = get_ticker("assets")
         names = name("assets")
         t2n = ticker2name("assets")
     elif target == "sectors":
-        tickers = ticker("sectors")
+        tickers = get_ticker("sectors")
         names = name("sectors")
         t2n = {t: " ".join(n.split()[2:]) for t, n in ticker2name("sectors").items()}
     else:
@@ -729,6 +867,87 @@ def plot_soaring_stocks(top_k=7):
         plt.savefig(f"SandP_{window}_days_best_{top_k}.png")
 
 
+def optimality(returns: np.ndarray, volatilities: np.ndarray) -> np.ndarray:
+    covered = np.array([False] * len(returns))
+    for i in range(len(returns)):
+        if not covered[i]:
+            covered[(returns <= returns[i]) & (volatilities >= volatilities[i])] = True
+            covered[i] = False
+
+    return covered
+
+
+def plot_portfolio_via_sampling(
+    start_date: str, key="Close", path_savefile: str = "portfolio_via_sampling.png"
+) -> None:
+    df = download_assets(start_date)
+
+    (
+        tickers,
+        weight,
+        optimal_r,
+        optimal_v,
+        random_r,
+        random_v,
+        random_sharpe,
+    ) = optimize_asset_portfolio_via_sampling(df, key, return_samples=True)
+
+    df_random = pd.DataFrame(
+        {
+            "return": random_r,
+            "volatility": random_v,
+            "Sharpe": random_sharpe,
+        }
+    )
+
+    plt.close()
+    sns.scatterplot(
+        df_random, x="volatility", y="return", hue="Sharpe", s=3, legend=False
+    )
+    # draw frontiers
+    covered = optimality(random_r, random_v)
+    plt.scatter(
+        random_v[~covered], random_r[~covered], color="orange", marker=".", s=10
+    )
+    # draw tangent point
+    plt.scatter(
+        [optimal_v],
+        [optimal_r],
+        color="r",
+        marker="*",
+        s=30,
+        label="Tangent",
+    )
+    # plot Nasdaq, Dow, Gold
+    plt.scatter(
+        [np.sqrt(df[key]["TQQQ"].pct_change().var())],
+        [df[key]["TQQQ"].pct_change().mean()],
+        color="blue",
+        marker="o",
+        s=10,
+        label="TQQQ",
+    )
+    plt.scatter(
+        [np.sqrt(df[key]["SPXL"].pct_change().var())],
+        [df[key]["SPXL"].pct_change().mean()],
+        color="green",
+        marker="o",
+        s=10,
+        label="SPXL",
+    )
+    plt.scatter(
+        [np.sqrt(df[key]["SOXL"].pct_change().var())],
+        [df[key]["SOXL"].pct_change().mean()],
+        color="yellow",
+        marker="o",
+        s=10,
+        label="SOXL",
+    )
+
+    plt.legend()
+    plt.savefig(path_savefile, bbox_inches="tight")
+
+
 def append_returns(prev_r: Optional[pd.Series], next_r: pd.Series) -> pd.Series:
     if prev_r is None:
         return next_r
@@ -782,7 +1001,7 @@ def plot_rebalancing_backtest(
     start_date,
     end_date,
     rebalacing_periods: List[int] = [10, 20, 50, 100, 200],
-    asset_open_date="2012-01-01",
+    asset_open_date="2010-04-01",
     path_savefile: str = "backtest.png",
 ) -> None:
     start_date = datetime.strptime(start_date, "%Y-%m-%d")
@@ -795,22 +1014,16 @@ def plot_rebalancing_backtest(
 
     period2series = {}
     for rebalacing_period in rebalacing_periods:
-        generate_initial_portfolio_backtest(
-            start_date - timedelta(days=rebalacing_period), start_date, yf_df=yf_df
-        )
+        generate_initial_portfolio_backtest(start_date, yf_df=yf_df)
 
         portfolio_returns = pd.Series([1], index=[start_date], name="Close")
 
         test_date = start_date + timedelta(days=1)
         while test_date <= end_date:
             if sum(test_date == yf_df["Close"].index) > 0:
-                if (
-                    test_date
-                    - datetime.strptime(read_portfolio()["date_generated"], "%Y-%m-%d")
-                ).days >= rebalacing_period:
+                if need_to_update_portfolio(test_date, rebalacing_period):
                     generate_portfolio_via_rebalancing(
                         end_date=test_date - timedelta(days=1),
-                        rebalacing_period=rebalacing_period,
                         yf_df=yf_df[yf_df.index <= test_date - timedelta(days=1)],
                     )
 
