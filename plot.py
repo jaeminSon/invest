@@ -25,7 +25,7 @@ if __name__ == "__main__":
     plot_correlation(start_date="2024-01-01", target="sectors")
     plot_correlation(start_date="2012-01-01", target="assets")
     plot_return_measure(start_date="2024-01-01")
-    plot_soaring_stocks()
+    plot_soaring_stocks(top_k=10, date_back=10)
 
     plot_rebalancing_backtest(
         start_date="2024-01-01",
