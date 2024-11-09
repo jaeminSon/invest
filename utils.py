@@ -37,6 +37,13 @@ def download_sectors(start_date, end_date: Optional[str] = None) -> pd.DataFrame
     return download(tickers, start_date, end_date)
 
 
+def download_selected_etfs(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
+    if end_date is None:
+        start_date, end_date = period(start_date)
+    tickers = get_ticker("selected_etfs")
+    return download(tickers, start_date, end_date)
+
+
 def download_portfolio(start_date, end_date: Optional[str] = None) -> pd.DataFrame:
     pf = read_portfolio()
     tickers = [e[0] for e in pf["weights"] if e[0] != "cash"]
@@ -102,6 +109,8 @@ def get_ticker(category: str) -> List:
         return [i[0] for i in json.load(open("sectors.json"))]
     elif category.lower() == "assets":
         return [i[0] for i in json.load(open("assets.json"))]
+    elif category.lower() == "selected_etfs":
+        return [i[0] for i in json.load(open("selected_etfs.json"))]
     else:
         raise ValueError("Unknown category.")
 
@@ -167,15 +176,6 @@ def write_portfolio(
 
 def read_portfolio(path_portfolio: str = "portfolio.json"):
     return json.load(open(path_portfolio))
-
-
-def update_tickers(stocks: Iterable[str]) -> None:
-    alread_included = [e.rstrip() for e in open("./watchlist.txt").readlines()]
-
-    with open("./watchlist.txt", "a") as f:
-        for stock in stocks:
-            if stock not in alread_included:
-                f.write(f"{stock}\n")
 
 
 def write_new_portfolio(
@@ -848,13 +848,12 @@ def plot_return_measure(start_date, path_savefile: str = "return_measure.png"):
     plt.savefig(f"measure_estimate.png")
 
 
-def plot_soaring_stocks(top_k=7):
-    start_date, end_date = period(date_back=365)
-    df = download_SandP(start_date)
+def plot_soaring_stocks(top_k=7, date_back=365):
+    start_date, end_date = period(date_back=date_back)
+    # df = download_SandP(start_date)
     # df = download_sectors(start_date)
+    df = download_selected_etfs(start_date)
     window2stocks = select_stock_varying_windows(df, top_k)
-
-    update_tickers(set(sum(window2stocks.values(), [])))
 
     for window in window2stocks:
         plt.close()
@@ -864,7 +863,7 @@ def plot_soaring_stocks(top_k=7):
 
         df_return.plot(figsize=(16, 12))
 
-        plt.savefig(f"SandP_{window}_days_best_{top_k}.png")
+        plt.savefig(f"{window}_days_best_{top_k}.png")
 
 
 def optimality(returns: np.ndarray, volatilities: np.ndarray) -> np.ndarray:
