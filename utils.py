@@ -58,6 +58,12 @@ def download_portfolio(start_date, end_date: Optional[str] = None) -> pd.DataFra
 
 def download(symbol, start_date, end_date) -> pd.DataFrame:
     stock_data = yf.download(symbol, start=start_date, end=end_date)
+
+    if len(symbol) == 1:
+        stock_data.columns = pd.MultiIndex.from_tuples(
+            [(c, symbol[0]) for c in stock_data.columns]
+        )
+
     return stock_data
 
 
