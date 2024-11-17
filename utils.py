@@ -802,7 +802,10 @@ def sell_signal(end_date, yf_df: pd.DataFrame, key="Close"):
         end_date = datetime.strptime(end_date, "%Y-%m-%d")
 
     if yf_df is None:
-        df = download_assets(start_date=asset_open_date, end_date=end_date)
+        df = download_assets(
+            start_date=(end_date - timedelta(days=200)).strftime("%Y-%m-%d"),
+            end_date=end_date,
+        )
     else:
         df = yf_df[
             (yf_df.index >= end_date - timedelta(days=200)) & (yf_df.index <= end_date)
@@ -1742,4 +1745,55 @@ def plot_nasdaq_divided_by_gdp(
             label=column,
         )
     plt.legend(loc="best")
+    plt.savefig(path_savefile)
+
+
+def plot_sandp_correlation_by_date(
+    start_date: str, key="Close", path_savefile: str = "correlation_by_day.png"
+) -> None:
+    year, month, date = start_date.split("-")
+    assert month == "01" and date == "01"
+
+    start_date, end_date = period(start_date)
+    df = download("SPY", start_date, end_date)
+    df.dropna(inplace=True)
+
+    year2start_price = {}
+    year2end_price = {}
+    for year in range(df[key].index.year.min(), df[key].index.year.max()):
+        series_year = df[key][df[key].index.year == year].sort_index()
+        start_price = series_year.iloc[:20].mean()
+        end_price = series_year.iloc[-20:].mean()
+        year2start_price[year] = start_price
+        year2end_price[year] = end_price
+
+    day2correlation = {}
+    for day in pd.date_range(start="2000-02-01", end="2000-12-01", freq="D").strftime(
+        "%m-%d"
+    ):
+        df_day = df[key][df[key].index.strftime("%m-%d") == day]
+
+        list_return_so_far = []
+        list_return_left = []
+        for year in range(df[key].index.year.min(), df[key].index.year.max()):
+            row = df_day[df_day.index.year == year]
+            if len(row) == 1:
+                list_return_so_far.append(row.iloc[0] / year2start_price[year] - 1)
+                list_return_left.append(year2end_price[year] / row.iloc[0] - 1)
+
+        if len(list_return_so_far) > 0:
+            day2correlation[day] = np.corrcoef(list_return_so_far, list_return_left)[
+                0, 1
+            ]
+
+    df = pd.DataFrame(
+        {
+            "day": sorted(day2correlation.keys()),
+            "correlation": [day2correlation[d] for d in sorted(day2correlation.keys())],
+        }
+    )
+    df["mean"] = df["correlation"].rolling(window=20).mean()
+
+    plt.close()
+    df.plot(figsize=(16, 8), x="day", y=["correlation", "mean"])
     plt.savefig(path_savefile)
