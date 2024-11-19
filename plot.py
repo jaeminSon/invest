@@ -14,13 +14,14 @@ from utils import (
     plot_sandp_divided_by_m2,
     plot_nasdaq_divided_by_m2,
     plot_nasdaq_divided_by_gdp,
+    plot_sandp_correlation_by_date,
 )
 
 if __name__ == "__main__":
     plot_kelly_2d()
     plot_portfolio_via_sampling("2012-01-01")
     plot_return_leverage(start_date="2020-01-01")
-    plot_return_leverage_with_ma(start_date="2020-01-01")
+    plot_return_leverage_with_ma(start_date="2012-01-01")
     plot_return_sector(start_date="2000-01-01")
     plot_return_etf(start_date="2000-01-01")
     plot_return_index(start_date="2024-01-01")
@@ -32,29 +33,35 @@ if __name__ == "__main__":
     plot_nasdaq_divided_by_gdp(start_date="1900-01-01", end_date="2024-11-16")
     plot_nasdaq_divided_by_m2(start_date="1900-01-01", end_date="2024-11-16")
     plot_sandp_divided_by_m2(start_date="1900-01-01", end_date="2024-11-16")
+    plot_sandp_correlation_by_date("1900-01-01")
 
     plot_rebalancing_backtest(
         start_date="2024-01-01",
-        end_date="2024-10-20",
+        end_date="2024-11-19",
         path_savefile="backtest_from_20240101.png",
     )
     plot_rebalancing_backtest(
-        start_date="2020-01-01",
-        end_date="2024-01-01",
-        path_savefile="backtest_from_20200101.png",
+        start_date="2022-01-01",
+        end_date="2024-11-19",
+        path_savefile="backtest_from_20220101.png",
+    )
+    plot_rebalancing_backtest(
+        start_date="2020-03-01",
+        end_date="2024-11-19",
+        path_savefile="backtest_from_20200301.png",
+    )
+    plot_rebalancing_backtest(
+        start_date="2018-06-01",
+        end_date="2024-11-19",
+        path_savefile="backtest_from_20180601.png",
     )
     plot_rebalancing_backtest(
         start_date="2016-01-01",
-        end_date="2020-01-01",
+        end_date="2024-01-01",
         path_savefile="backtest_from_20160101.png",
     )
     plot_rebalancing_backtest(
         start_date="2014-01-01",
-        end_date="2016-01-01",
+        end_date="2024-11-19",
         path_savefile="backtest_from_20140101.png",
-    )
-    plot_rebalancing_backtest(
-        start_date="2014-01-01",
-        end_date="2024-10-20",
-        path_savefile="backtest_from_2014_to_2024.png",
     )
