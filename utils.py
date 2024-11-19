@@ -1070,7 +1070,7 @@ def compute_budge(total_budget: int, path_portfolio: str = "portfolio.json"):
         list of money for each weight
     """
     pf = read_portfolio(path_portfolio)
-    return [e + [e[1] * total_budget] for e in pf["weights"]]
+    return {e[0]: e[1] * total_budget for e in pf["weights"]}
 
 
 def need_to_update_portfolio(date: datetime.date, rebalacing_period: int):

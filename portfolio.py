@@ -4,8 +4,8 @@ from utils import (
 )
 
 if __name__ == "__main__":
-    write_new_portfolio(rebalacing_period=10, path_savefile="portfolio_10.json")
-    write_new_portfolio(rebalacing_period=20, path_savefile="portfolio_20.json")
-    write_new_portfolio(rebalacing_period=50, path_savefile="portfolio_50.json")
-    write_new_portfolio(rebalacing_period=100, path_savefile="portfolio_100.json")
+    write_new_portfolio(rebalacing_period=10, path_savefile="portfolio.json")
+    print(
+        compute_budge(total_budget=70_000_000 / 1400, path_portfolio="portfolio.json")
+    )
     # print(compute_budge(100_000))
