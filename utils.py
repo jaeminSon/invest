@@ -541,6 +541,8 @@ def get_fred_ticker(ticker: str):
         return "GDP"
     elif ticker.lower() == "2-10-spread":
         return "T10Y2Y"
+    elif ticker.lower() == "10y-yield":
+        return "DGS10"
     elif ticker.lower() == "m2":
         return "M2SL"
 
@@ -1402,7 +1404,7 @@ def plot_return_measure(start_date, path_savefile: str = "return_measure.png"):
             axes[2 * i, j].set_title(f"x (sector {5 * i + j})")
             axes[2 * i + 1, j].set_title(f"log(x+1) (sector {5 * i + j})")
 
-    plt.savefig(f"measure_estimate.png")
+    plt.savefig(path_savefile)
 
 
 def plot_soaring_stocks(top_k=7, date_back=365):
@@ -1597,16 +1599,13 @@ def plot_rebalancing_backtest(
     plt.savefig(path_savefile)
 
 
-def plot_sandp_divided_by_m2(
-    start_date: str, end_date: str, path_savefile: str = "SP500_divided_by_M2.png"
+def plot_A_divided_by_B(
+    A: pd.Series, B: pd.Series, column_name: str, ma_window: int, path_savefile: str
 ):
-    sandp = get_fred_series("s&p500", start_date, end_date)
-    m2 = get_fred_series("m2", start_date, end_date)
-    series = pd.concat([sandp, m2], axis=1).dropna()
-
-    df = (series[0] / series[1]).to_frame(name="S&P / M2")
+    series = pd.concat([A, B], axis=1).dropna()
+    df = (series[0] / series[1]).to_frame(name=column_name)
     df = (df.pct_change().fillna(0) + 1).cumprod().dropna()
-    df["mean"] = df.rolling(window=12).mean()  # monthly data, average over 1 year
+    df["mean"] = df.rolling(window=ma_window).mean()
     std = np.std(df["mean"])
     df["+1s"] = df["mean"] + std
     df["+2s"] = df["mean"] + 2 * std
@@ -1617,7 +1616,7 @@ def plot_sandp_divided_by_m2(
     plt.close()
     fig, ax = plt.subplots(figsize=(16, 8))
     colors = {
-        "S&P / M2": "blue",
+        column_name: "blue",
         "mean": "yellow",
         "+1s": "orange",
         "+2s": "red",
@@ -1625,14 +1624,14 @@ def plot_sandp_divided_by_m2(
         "-2s": "green",
     }
     styles = {
-        "S&P / M2": "-",
+        column_name: "-",
         "mean": "--",
         "+1s": "--",
         "+2s": "--",
         "-1s": "--",
         "-2s": "--",
     }
-    linewidths = {"S&P / M2": 2, "mean": 1, "+1s": 1, "+2s": 1, "-1s": 1, "-2s": 1}
+    linewidths = {column_name: 2, "mean": 1, "+1s": 1, "+2s": 1, "-1s": 1, "-2s": 1}
     for column in df.columns:
         df[column].plot(
             ax=ax,
@@ -1643,113 +1642,51 @@ def plot_sandp_divided_by_m2(
         )
     plt.legend(loc="best")
     plt.savefig(path_savefile)
+
+
+def plot_sandp_divided_by_m2(
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/SP500_divided_by_M2.png",
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    sandp = get_fred_series("s&p500", start_date, end_date)
+    m2 = get_fred_series("m2", start_date, end_date)
+
+    plot_A_divided_by_B(sandp, m2, "S&P / M2", 12, path_savefile)
 
 
 def plot_nasdaq_divided_by_m2(
-    start_date: str, end_date: str, path_savefile: str = "Nasdaq_divided_by_M2.png"
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/Nasdaq_divided_by_M2.png",
 ):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
     sandp = get_fred_series("nasdaq", start_date, end_date)
     m2 = get_fred_series("m2", start_date, end_date)
-    series = pd.concat([sandp, m2], axis=1).dropna()
 
-    df = (series[0] / series[1]).to_frame(name="Nasdaq / M2")
-    df = (df.pct_change().fillna(0) + 1).cumprod().dropna()
-    df["mean"] = df.rolling(window=12).mean()  # monthly data, average over 1 year
-    std = np.std(df["mean"])
-    df["+1s"] = df["mean"] + std
-    df["+2s"] = df["mean"] + 2 * std
-    df["-1s"] = df["mean"] - std
-    df["-2s"] = df["mean"] - 2 * std
-    df.dropna(inplace=True)
-
-    plt.close()
-    fig, ax = plt.subplots(figsize=(16, 8))
-    colors = {
-        "Nasdaq / M2": "blue",
-        "mean": "yellow",
-        "+1s": "orange",
-        "+2s": "red",
-        "-1s": "lime",
-        "-2s": "green",
-    }
-    styles = {
-        "Nasdaq / M2": "-",
-        "mean": "--",
-        "+1s": "--",
-        "+2s": "--",
-        "-1s": "--",
-        "-2s": "--",
-    }
-    linewidths = {"Nasdaq / M2": 2, "mean": 1, "+1s": 1, "+2s": 1, "-1s": 1, "-2s": 1}
-    for column in df.columns:
-        df[column].plot(
-            ax=ax,
-            color=colors[column],
-            linestyle=styles[column],
-            linewidth=linewidths[column],
-            label=column,
-        )
-    plt.legend(loc="best")
-    plt.savefig(path_savefile)
+    plot_A_divided_by_B(sandp, m2, "Nasdaq / M2", 12, path_savefile)
 
 
 def plot_nasdaq_divided_by_gdp(
-    start_date: str, end_date: str, path_savefile: str = "nasdaq_divided_by_gdp.png"
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/Nasdaq_divided_by_gdp.png",
 ):
-    share_price = get_fred_series("nasdaq", start_date, end_date)
+    if end_date is None:
+        start_date, end_date = period(start_date)
+    nasdaq = get_fred_series("nasdaq", start_date, end_date)
     gdp = get_fred_series("gdp", start_date, end_date)
-    series = pd.concat([share_price, gdp], axis=1).dropna()
 
-    df = (series[0] / series[1]).to_frame(name="Nasdaq divided by GDP")
-    df = (df.pct_change().fillna(0) + 1).cumprod().dropna()
-    df["mean"] = df.rolling(window=4).mean()  # quarterly data, average over 1 year
-    std = np.std(df["mean"])
-    df["+1s"] = df["mean"] + std
-    df["+2s"] = df["mean"] + 2 * std
-    df["-1s"] = df["mean"] - std
-    df["-2s"] = df["mean"] - 2 * std
-    df.dropna(inplace=True)
-
-    plt.close()
-    fig, ax = plt.subplots(figsize=(16, 8))
-    colors = {
-        "Nasdaq divided by GDP": "blue",
-        "mean": "yellow",
-        "+1s": "orange",
-        "+2s": "red",
-        "-1s": "lime",
-        "-2s": "green",
-    }
-    styles = {
-        "Nasdaq divided by GDP": "-",
-        "mean": "--",
-        "+1s": "--",
-        "+2s": "--",
-        "-1s": "--",
-        "-2s": "--",
-    }
-    linewidths = {
-        "Nasdaq divided by GDP": 2,
-        "mean": 1,
-        "+1s": 1,
-        "+2s": 1,
-        "-1s": 1,
-        "-2s": 1,
-    }
-    for column in df.columns:
-        df[column].plot(
-            ax=ax,
-            color=colors[column],
-            linestyle=styles[column],
-            linewidth=linewidths[column],
-            label=column,
-        )
-    plt.legend(loc="best")
-    plt.savefig(path_savefile)
+    plot_A_divided_by_B(nasdaq, gdp, "Nasdaq / GDP", 4, path_savefile)
 
 
 def plot_sandp_correlation_by_date(
-    start_date: str, key="Close", path_savefile: str = "correlation_by_day.png"
+    start_date: str, key="Close", path_savefile: str = "figures/correlation_by_day.png"
 ) -> None:
     year, month, date = start_date.split("-")
     assert month == "01" and date == "01"
@@ -1796,4 +1733,32 @@ def plot_sandp_correlation_by_date(
 
     plt.close()
     df.plot(figsize=(16, 8), x="day", y=["correlation", "mean"])
+    plt.savefig(path_savefile)
+
+
+def plot_SP500_MOVE(
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/SP500_MOVE.png",
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    tickers = ["SPY", "^MOVE"]
+    df = download(tickers, start_date, end_date)
+    df.dropna(inplace=True)
+
+    corr = np.corrcoef(df["Close"]["SPY"], df["Close"]["^MOVE"])[0, 1]
+    print(f"Correlation between SP500 and MOVE: {corr}")
+
+    plt.close()
+    fig, ax1 = plt.subplots(figsize=(20, 15))
+    ax1.plot(df["Close"]["SPY"].index, list(df["Close"]["SPY"]), color="blue")
+    ax2 = ax1.twinx()
+    ax2.plot(
+        df["Close"]["^MOVE"].index,
+        list(-df["Close"]["^MOVE"]),
+        color="red",
+    )
+    plt.xlabel("Date")
     plt.savefig(path_savefile)
