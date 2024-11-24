@@ -1200,6 +1200,20 @@ def plot_return(df: pd.DataFrame, path_savefile: str) -> None:
     plt.savefig(path_savefile)
 
 
+def plot_SP500_Nasdaq(
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "return_SP500_Nasdaq.png",
+) -> None:
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    tickers = ["SPY", "^IXIC"]
+    df = download(tickers, start_date, end_date)
+
+    plot_return(df, path_savefile)
+
+
 def plot_return_leverage_with_ma(
     start_date, path_savefile: str = "return_leverage_with_ma.png"
 ) -> None:

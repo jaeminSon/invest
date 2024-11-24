@@ -16,6 +16,7 @@ from utils import (
     plot_nasdaq_divided_by_gdp,
     plot_sandp_correlation_by_date,
     plot_SP500_MOVE,
+    plot_SP500_Nasdaq,
 )
 
 if __name__ == "__main__":
@@ -31,6 +32,7 @@ if __name__ == "__main__":
     # plot_return_portfolio_stocks(start_date="2024-01-01")
     # plot_soaring_stocks(top_k=10, date_back=10)
     # plot_sandp_correlation_by_date("1900-01-01")
+    # plot_SP500_Nasdaq(start_date="1900-01-01")
 
     ##################
     # plot quarterly #
