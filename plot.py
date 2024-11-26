@@ -17,6 +17,7 @@ from utils import (
     plot_sandp_correlation_by_date,
     plot_SP500_MOVE,
     plot_SP500_Nasdaq,
+    plot_predict_fourier,
 )
 
 if __name__ == "__main__":
@@ -37,10 +38,15 @@ if __name__ == "__main__":
     ##################
     # plot quarterly #
     ##################
-    plot_correlation(start_date="2024-01-01", target="sectors")
-    plot_correlation(start_date="2012-01-01", target="assets")
-    plot_return_sector(start_date="2000-01-01")
-    plot_return_etf(start_date="2000-01-01")
+    # plot_correlation(start_date="2024-01-01", target="sectors")
+    # plot_correlation(start_date="2012-01-01", target="assets")
+    # plot_return_sector(start_date="2000-01-01")
+    # plot_return_etf(start_date="2000-01-01")
+    # plot_predict_fourier(
+    #     regression_start_date="2000-04-01",
+    #     regression_end_date="2024-10-01",
+    #     test_end_date="2024-11-26",
+    # )
 
     ###################
     # plot every week #

@@ -17,8 +17,6 @@ import urllib.request as url_request
 import urllib.parse as url_parse
 import urllib.error as url_error
 
-from jumpdiff import jumpdiff as jd
-
 ############
 ### FRED ###
 ############
@@ -1145,6 +1143,25 @@ def simulate_market(yf_df: pd.DataFrame, eval_date, key="Close"):
     )
 
 
+def predict_fourier(x: List, n_predict: int, n_harmonics=50) -> np.ndarray:
+    n = len(x)
+    x_freq_dom = np.fft.fft(x)
+    frequency = np.fft.fftfreq(n)
+    key_indices = list(range(n))
+    key_indices.sort(key=lambda i: np.absolute(frequency[i]))
+
+    extended_time = np.arange(0, n + n_predict)
+    restored_sig = np.zeros(extended_time.size)
+    for i in key_indices[: 1 + n_harmonics * 2]:
+        amplitude = np.absolute(x_freq_dom[i]) / n
+        phase = np.angle(x_freq_dom[i])
+        restored_sig += amplitude * np.cos(
+            2 * np.pi * frequency[i] * extended_time + phase
+        )
+
+    return restored_sig
+
+
 ############
 ### plot ###
 ############
@@ -1195,9 +1212,9 @@ def plot_kelly_2d(path_savefile="kelly_criterion.png") -> None:
 
 def plot_return(df: pd.DataFrame, path_savefile: str) -> None:
     df_return = yf_return(df)
+
     plt.close()
     df_return.plot(figsize=(16, 12))
-
     plt.savefig(path_savefile)
 
 
@@ -1779,29 +1796,49 @@ def plot_SP500_MOVE(
     plt.savefig(path_savefile)
 
 
-def plot_return_jump_diffusion():
-    df = download(["SPY"], "2024-10-01", "2024-11-25")
+def plot_predict_fourier(
+    regression_start_date: str,
+    regression_end_date: str,
+    test_end_date: str,
+    key: str = "Close",
+    path_savefile: str = "figures/predict_fourier.png",
+):
+    tickers = ["SPXL", "TQQQ", "SOXL"]
+
+    df = download(tickers, regression_start_date, test_end_date)
     df.dropna(inplace=True)
 
-    df_return = yf_return(df)
-    df_return.dropna(inplace=True)
-
-    edges, moments = jd.moments(timeseries=df_return)
-
-    var_xi = jd.jump_amplitude(moments)[0]
-    lamb = jd.jump_rate(moments)[0]
-
-    b_squared = moments[2] - var_xi * lamb
-    b = np.sqrt(np.mean(b_squared[b_squared > 0]))
-
-    def func_a(x):
-        return np.interp(x, edges[:, 0], moments[1, :, 0])
-
     plt.close()
-    plt.plot(list(df_return["SPY"]))
-    plt.plot(
-        jd.jd_process(
-            len(df_return), 0.001, a=func_a, b=lambda x: b, xi=var_xi, lamb=lamb
+    fig, ax = plt.subplots(figsize=(16, 8))
+
+    for ticker in tickers:
+        df_mean = df[key][ticker].to_frame()
+        df_mean[ticker] /= df_mean[ticker].rolling(window=100).mean()
+        df_mean.dropna(inplace=True)
+        n_predict = sum(
+            (regression_end_date <= df_mean.index) & (df_mean.index <= test_end_date)
         )
+        pred = predict_fourier(
+            list(df_mean[ticker][df_mean.index <= regression_end_date]),
+            n_predict=n_predict,
+        )
+
+        df_mean.loc[:, f"{ticker}_fourier"] = pred[: len(df_mean)]
+
+        df_mean.plot(ax=ax)
+
+    plt.axvline(
+        pd.Timestamp(regression_end_date),
+        color="black",
+        linestyle="-",
+        label="prediction start",
     )
-    plt.show()
+    plt.axhline(
+        1,
+        color="red",
+        linestyle="--",
+    )
+    plt.xlabel("Date")
+    plt.legend(loc="best")
+    plt.title("Fourier Transformation of Price/MA100")
+    plt.savefig(path_savefile)
