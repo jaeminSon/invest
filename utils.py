@@ -17,6 +17,7 @@ import urllib.request as url_request
 import urllib.parse as url_parse
 import urllib.error as url_error
 
+from jumpdiff import jumpdiff as jd
 
 ############
 ### FRED ###
@@ -1215,7 +1216,7 @@ def plot_SP500_Nasdaq(
 
 
 def plot_return_leverage_with_ma(
-    start_date, path_savefile: str = "return_leverage_with_ma.png"
+    start_date: str, path_savefile: str = "figures/return_leverage_with_ma.png"
 ) -> None:
     tickers = ["SPXL", "TQQQ", "SOXL"]
     start_date, end_date = period(start_date)
@@ -1776,3 +1777,31 @@ def plot_SP500_MOVE(
     )
     plt.xlabel("Date")
     plt.savefig(path_savefile)
+
+
+def plot_return_jump_diffusion():
+    df = download(["SPY"], "2024-10-01", "2024-11-25")
+    df.dropna(inplace=True)
+
+    df_return = yf_return(df)
+    df_return.dropna(inplace=True)
+
+    edges, moments = jd.moments(timeseries=df_return)
+
+    var_xi = jd.jump_amplitude(moments)[0]
+    lamb = jd.jump_rate(moments)[0]
+
+    b_squared = moments[2] - var_xi * lamb
+    b = np.sqrt(np.mean(b_squared[b_squared > 0]))
+
+    def func_a(x):
+        return np.interp(x, edges[:, 0], moments[1, :, 0])
+
+    plt.close()
+    plt.plot(list(df_return["SPY"]))
+    plt.plot(
+        jd.jd_process(
+            len(df_return), 0.001, a=func_a, b=lambda x: b, xi=var_xi, lamb=lamb
+        )
+    )
+    plt.show()
