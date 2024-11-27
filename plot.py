@@ -43,9 +43,7 @@ if __name__ == "__main__":
     # plot_return_sector(start_date="2000-01-01")
     # plot_return_etf(start_date="2000-01-01")
     # plot_predict_fourier(
-    #     regression_start_date="2000-04-01",
-    #     regression_end_date="2024-10-01",
-    #     test_end_date="2024-11-26",
+    #     regression_start_date="1900-04-01",
     # )
 
     ###################

@@ -1652,8 +1652,8 @@ def plot_A_divided_by_B(
         "mean": "yellow",
         "+1s": "orange",
         "+2s": "red",
-        "-1s": "lime",
-        "-2s": "green",
+        "-1s": "green",
+        "-2s": "lime",
     }
     styles = {
         column_name: "-",
@@ -1798,47 +1798,76 @@ def plot_SP500_MOVE(
 
 def plot_predict_fourier(
     regression_start_date: str,
-    regression_end_date: str,
-    test_end_date: str,
+    regression_end_date: str = None,
+    test_end_date: str = None,
     key: str = "Close",
-    path_savefile: str = "figures/predict_fourier.png",
+    n_predict: int = 100,
 ):
-    tickers = ["SPXL", "TQQQ", "SOXL"]
+    if regression_end_date is None:
+        assert test_end_date is None
+        regression_end_date = datetime.now().strftime("%Y-%m-%d")
+        test_end_date = (datetime.now() + timedelta(days=n_predict)).strftime(
+            "%Y-%m-%d"
+        )
 
-    df = download(tickers, regression_start_date, test_end_date)
-    df.dropna(inplace=True)
-
-    plt.close()
-    fig, ax = plt.subplots(figsize=(16, 8))
-
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
     for ticker in tickers:
+        df = download([ticker], regression_start_date, test_end_date)
+        df.dropna(inplace=True)
+
+        plt.close()
+        fig, ax = plt.subplots(figsize=(16, 8))
+
         df_mean = df[key][ticker].to_frame()
         df_mean[ticker] /= df_mean[ticker].rolling(window=100).mean()
         df_mean.dropna(inplace=True)
-        n_predict = sum(
-            (regression_end_date <= df_mean.index) & (df_mean.index <= test_end_date)
-        )
+
+        std = np.std(df_mean[ticker])
+        mean = np.mean(df_mean[ticker])
+
         pred = predict_fourier(
             list(df_mean[ticker][df_mean.index <= regression_end_date]),
             n_predict=n_predict,
         )
+        new_dates = pd.date_range(
+            start=(df_mean.index[-1] + timedelta(days=1)).strftime("%Y-%m-%d"),
+            periods=len(pred) - len(df_mean.index),
+            freq="D",
+        )
+
+        extended_index = df_mean.index.append(new_dates)
+        df_mean = df_mean.reindex(extended_index)
 
         df_mean.loc[:, f"{ticker}_fourier"] = pred[: len(df_mean)]
 
         df_mean.plot(ax=ax)
 
-    plt.axvline(
-        pd.Timestamp(regression_end_date),
-        color="black",
-        linestyle="-",
-        label="prediction start",
-    )
-    plt.axhline(
-        1,
-        color="red",
-        linestyle="--",
-    )
-    plt.xlabel("Date")
-    plt.legend(loc="best")
-    plt.title("Fourier Transformation of Price/MA100")
-    plt.savefig(path_savefile)
+        plt.axhline(
+            mean + 2 * std,
+            color="red",
+            linestyle="--",
+        )
+        plt.axhline(
+            mean + std,
+            color="orange",
+            linestyle="--",
+        )
+        plt.axhline(
+            mean,
+            color="black",
+            linestyle="--",
+        )
+        plt.axhline(
+            mean - std,
+            color="green",
+            linestyle="--",
+        )
+        plt.axhline(
+            mean - 2 * std,
+            color="lime",
+            linestyle="--",
+        )
+        plt.xlabel("Date")
+        plt.legend(loc="best")
+        plt.title("Fourier Transformation of Price/MA100")
+        plt.savefig(f"figures/predict_fourier_{ticker}.png")
