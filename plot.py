@@ -18,6 +18,8 @@ from utils import (
     plot_SP500_MOVE,
     plot_SP500_Nasdaq,
     plot_predict_fourier,
+    plot_predict_hmm,
+    plot_SP500_JOLT,
 )
 
 if __name__ == "__main__":
@@ -38,16 +40,20 @@ if __name__ == "__main__":
     ##################
     # plot quarterly #
     ##################
-    # plot_correlation(start_date="2024-01-01", target="sectors")
-    # plot_correlation(start_date="2012-01-01", target="assets")
-    # plot_return_sector(start_date="2000-01-01")
-    # plot_return_etf(start_date="2000-01-01")
-    
+    plot_correlation(start_date="2024-01-01", target="sectors")
+    plot_correlation(start_date="2012-01-01", target="assets")
+    plot_return_sector(start_date="2000-01-01")
+    plot_return_etf(start_date="2000-01-01")
+    plot_SP500_JOLT(start_date="1900-01-01")
+
     ###################
     # plot every week #
     ###################
     plot_return_leverage_with_ma(start_date="2012-01-01")
     plot_predict_fourier(
+        regression_start_date="1900-04-01",
+    )
+    plot_predict_hmm(
         regression_start_date="1900-04-01",
     )
     plot_nasdaq_divided_by_gdp(start_date="1900-01-01")
@@ -79,7 +85,7 @@ if __name__ == "__main__":
     )
     plot_rebalancing_backtest(
         start_date="2016-01-01",
-        end_date="2024-01-01",
+        end_date="2024-11-19",
         path_savefile="backtest_from_20160101.png",
     )
     plot_rebalancing_backtest(

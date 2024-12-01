@@ -7,6 +7,7 @@ import json
 
 import numpy as np
 import scipy
+import scipy.stats
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,6 +17,8 @@ import xml.etree.ElementTree as ET
 import urllib.request as url_request
 import urllib.parse as url_parse
 import urllib.error as url_error
+
+from hmmlearn import hmm
 
 ############
 ### FRED ###
@@ -544,6 +547,8 @@ def get_fred_ticker(ticker: str):
         return "DGS10"
     elif ticker.lower() == "m2":
         return "M2SL"
+    elif ticker.lower() == "jolt":
+        return "JTSJOL"
 
 
 def get_fred_series(ticker: str, start_date: str, end_date: str):
@@ -858,7 +863,7 @@ def sell(portfolio: Dict, transaction_fee_rate) -> Dict:
     return tickers, optimal_w, cash
 
 
-def compute_win_rate(yf_df: pd.DataFrame, ticker: str) -> float:
+def compute_percentile_by_percent_change(yf_df: pd.DataFrame, ticker: str) -> float:
     # empirical wining rate of the previous period
     list_prob_win = []
     for window in [10, 20, 50, 100]:
@@ -869,7 +874,7 @@ def compute_win_rate(yf_df: pd.DataFrame, ticker: str) -> float:
     return np.mean(list_prob_win)
 
 
-def compute_confidence(yf_df: pd.DataFrame, ticker: str, key="Close"):
+def compute_trend(yf_df: pd.DataFrame, ticker: str, key="Close"):
     list_confidence = []
     for window in [10, 20, 50, 100]:
         df_ma = yf_df[key].rolling(window=window).mean().dropna()
@@ -901,18 +906,12 @@ def set_target_weights(
 
     weights = {}
     for ticker in df[key].columns:
-        prob_win = compute_win_rate(df, ticker)
+        win_rate = compute_win_rate_by_ratio_density_function(df, ticker)
+        weight = np.clip(2 * win_rate, 0, 1)  # maintain at half
 
-        # reversed optimal weight == 2*(1-prob_win)
-        bet_ratio = 1 - kelly(
-            win_rate=prob_win,
-            net_profit=1,
-            net_loss=1,
-        )
+        trend = compute_trend(df, ticker)
 
-        confidence = compute_confidence(df, ticker)
-
-        weights[ticker] = bet_ratio * confidence
+        weights[ticker] = weight * trend
 
     sum_weights_assets = sum(weights.values())
     if sum_weights_assets > 1:
@@ -1082,6 +1081,44 @@ def need_to_update_portfolio(date: datetime.date, rebalacing_period: int):
     return stale or all_cash(portfolio)
 
 
+def compute_win_rate_by_ratio_density_function(
+    yf_df: pd.DataFrame, ticker: str
+) -> float:
+    df_mean = yf_df["Close"][ticker].to_frame("price_ratio")
+    df_mean["price_ratio"] /= df_mean["price_ratio"].rolling(window=100).mean()
+    df_mean.dropna(inplace=True)
+
+    p = density_function(list(df_mean["price_ratio"]))
+
+    return win_rate_given_density_function(p, df_mean["price_ratio"].iloc[-1])
+
+
+def compute_win_rates_assets(
+    start_date: str, end_date: str = None, key: str = "Close", ma_window: int = 100
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    tickers = get_ticker("assets")
+    df = download(tickers, start_date, end_date)
+
+    win_rates = {}
+    for ticker in tickers:
+        df_mean = df[key][ticker].to_frame("price_ratio")
+        df_mean["price_ratio"] /= (
+            df_mean["price_ratio"].rolling(window=ma_window).mean()
+        )
+        df_mean.dropna(inplace=True)
+
+        p = density_function(list(df_mean["price_ratio"]))
+
+        win_rates[ticker] = win_rate_given_density_function(
+            p, df_mean["price_ratio"].iloc[-1]
+        )
+
+    return win_rates
+
+
 ###############
 ### Utility ###
 ###############
@@ -1143,7 +1180,7 @@ def simulate_market(yf_df: pd.DataFrame, eval_date, key="Close"):
     )
 
 
-def predict_fourier(x: List, n_predict: int, n_harmonics=50) -> np.ndarray:
+def predict_fourier(x: List, n_predict: int, n_harmonics=5) -> np.ndarray:
     n = len(x)
     x_freq_dom = np.fft.fft(x)
     frequency = np.fft.fftfreq(n)
@@ -1160,6 +1197,41 @@ def predict_fourier(x: List, n_predict: int, n_harmonics=50) -> np.ndarray:
         )
 
     return restored_sig
+
+
+def density_function(x: List[float]):
+    return scipy.stats.gaussian_kde(x)
+
+
+def win_rate_given_density_function(
+    p: callable, x0: float, upper_limit=2, n_samples=1000
+):
+    x = np.linspace(x0, upper_limit, n_samples)
+    return np.sum([(x[i] - x[i - 1]) * p(x[i - 1]) for i in range(1, len(x))])
+
+
+def compute_net_profit_by_density_function(
+    p: callable, x0: float, upper_limit=2, n_samples=1000
+):
+    x = np.linspace(x0, upper_limit, n_samples)
+    return np.sum(
+        [
+            (x[i - 1] / x0 - 1) * (x[i] - x[i - 1]) * p(x[i - 1])
+            for i in range(1, len(x))
+        ]
+    )
+
+
+def compute_net_loss_by_density_function(
+    p: callable, x0: float, lower_limit=0, n_samples=1000
+):
+    x = np.linspace(lower_limit, x0, n_samples)
+    return sum(
+        [
+            (1 - x[i - 1] / x0) * (x[i] - x[i - 1]) * p(x[i - 1])
+            for i in range(1, len(x))
+        ]
+    )
 
 
 ############
@@ -1796,6 +1868,49 @@ def plot_SP500_MOVE(
     plt.savefig(path_savefile)
 
 
+def plot_SP500_JOLT(
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/SP500_JOLT.png",
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    jolt = get_fred_series("jolt", start_date, end_date).to_frame("JOLT")
+    jolt.index.name = "Date"
+    sp500 = download(["SPY"], start_date, end_date)
+    df = jolt.merge(sp500["Close"]["SPY"].to_frame(), on="Date")
+    df.dropna(inplace=True)
+
+    corr = np.corrcoef(df["SPY"], df["JOLT"])[0, 1]
+    print(f"[All] Correlation between SP500 and JOLT: {corr}")
+
+    # chatgpt debut
+    corr = np.corrcoef(
+        df["SPY"][df["SPY"].index <= "2022-11-30"],
+        df["JOLT"][df["JOLT"].index <= "2022-11-30"],
+    )[0, 1]
+    print(f"[Before chatgpt] Correlation between SP500 and JOLT: {corr}")
+
+    # chatgpt debut
+    corr = np.corrcoef(
+        df["SPY"][df["SPY"].index >= "2022-11-30"],
+        df["JOLT"][df["JOLT"].index >= "2022-11-30"],
+    )[0, 1]
+    print(f"[After chatgpt] Correlation between SP500 and JOLT: {corr}")
+
+    plt.close()
+    fig, ax1 = plt.subplots(figsize=(20, 15))
+    ax1.plot(df["SPY"].index, list(df["SPY"]), color="blue")
+    ax2 = ax1.twinx()
+    ax2.plot(
+        df["JOLT"].index,
+        list(df["JOLT"]),
+        color="red",
+    )
+    plt.savefig(path_savefile)
+
+
 def plot_predict_fourier(
     regression_start_date: str,
     regression_end_date: str = None,
@@ -1871,3 +1986,59 @@ def plot_predict_fourier(
         plt.legend(loc="best")
         plt.title("Fourier Transformation of Price/MA100")
         plt.savefig(f"figures/predict_fourier_{ticker}.png")
+
+
+def plot_predict_hmm(
+    regression_start_date: str,
+    regression_end_date: str = None,
+    test_end_date: str = None,
+    n_predict: int = 100,
+):
+    if regression_end_date is None:
+        assert test_end_date is None
+        regression_end_date = datetime.now().strftime("%Y-%m-%d")
+        test_end_date = (datetime.now() + timedelta(days=n_predict)).strftime(
+            "%Y-%m-%d"
+        )
+
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
+    for ticker in tickers:
+        df = download([ticker], regression_start_date, test_end_date)
+
+        df_mean = df["Close"][ticker].to_frame()
+        df_mean[ticker] /= df_mean[ticker].rolling(window=100).mean()
+        df_mean_volume = df["Volume"][ticker].to_frame("volume_ratio")
+        df_mean_volume["volume_ratio"] /= (
+            df_mean_volume["volume_ratio"].rolling(window=100).mean()
+        )
+        df_ratio = df_mean.merge(df_mean_volume, on="Date")
+        df_ratio.dropna(inplace=True)
+
+        n_components = 12
+        model = hmm.GaussianHMM(
+            n_components=n_components, covariance_type="full", n_iter=10_000
+        )
+        model.fit(df_ratio)
+        currstate = model.predict(df_ratio)[-1]
+
+        df_mean.dropna(inplace=True)
+        ori_seq = df_mean[ticker]
+        new_dates = pd.date_range(
+            start=(df_mean.index[-1] + timedelta(days=1)).strftime("%Y-%m-%d"),
+            periods=n_predict,
+            freq="D",
+        )
+        extended_index = df_mean.index.append(new_dates)
+        df_mean = df_mean.reindex(extended_index)
+
+        for i in range(5):
+            df_mean.loc[:, f"{ticker}_hmm_{i}"] = list(ori_seq) + list(
+                model.sample(n_predict, currstate=currstate)[0][:, 0]
+            )
+
+        plt.close()
+        df_mean.plot(figsize=(16, 8))
+        plt.xlabel("Date")
+        plt.legend(loc="best")
+        plt.title("Hidden Markov Model of Price/MA100")
+        plt.savefig(f"figures/predict_hmm_{ticker}.png")
