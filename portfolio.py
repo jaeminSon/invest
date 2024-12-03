@@ -10,4 +10,3 @@ if __name__ == "__main__":
     print(
         compute_budge(total_budget=70_000_000 / 1400, path_portfolio="portfolio.json")
     )
-    # print(compute_budge(100_000))

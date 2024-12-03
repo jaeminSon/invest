@@ -19,6 +19,7 @@ import urllib.parse as url_parse
 import urllib.error as url_error
 
 from hmmlearn import hmm
+from lppls import lppls
 
 ############
 ### FRED ###
@@ -1297,7 +1298,7 @@ def plot_SP500_Nasdaq(
 ) -> None:
     if end_date is None:
         start_date, end_date = period(start_date)
-
+    end_date = "2000-01-01"
     tickers = ["SPY", "^IXIC"]
     df = download(tickers, start_date, end_date)
 
@@ -1882,6 +1883,39 @@ def plot_SP500_JOLT(
     df = jolt.merge(sp500["Close"]["SPY"].to_frame(), on="Date")
     df.dropna(inplace=True)
 
+    # compute drop ratio for several periods
+    list_drop = []
+    for start_date, end_date in [
+        ("2000-01-01", "2004-01-01"),
+        ("2007-01-01", "2009-01-01"),
+        ("2019-01-01", "2020-05-01"),
+    ]:
+        spy_top = df["SPY"][
+            (df["SPY"].index >= start_date) & (df["SPY"].index <= end_date)
+        ].max()
+        spy_bottom = df["SPY"][
+            (df["SPY"].index >= start_date) & (df["SPY"].index <= end_date)
+        ].min()
+
+        jolt_top = df["JOLT"][
+            (df["JOLT"].index >= start_date) & (df["JOLT"].index <= end_date)
+        ].max()
+        jolt_bottom = df["JOLT"][
+            (df["JOLT"].index >= start_date) & (df["JOLT"].index <= end_date)
+        ].min()
+
+        drop_ratio = (1 - spy_bottom / spy_top) / (1 - jolt_bottom / jolt_top)
+        list_drop.append(drop_ratio)
+    print(f"spy/jolt drop ratio: {list_drop}")
+
+    # apply spy/jolt drop ratio of 0.535
+    spy_top = df["SPY"][(df["SPY"].index >= "2022-01-01")].max()
+    jolt_bottom = df["JOLT"][df["JOLT"].index >= "2022-01-01"].min()
+    jolt_top = df["JOLT"][df["JOLT"].index >= "2022-01-01"].max()
+    est_drop_spy_min = (1 - jolt_bottom / jolt_top) * min(list_drop)
+    est_drop_spy_max = (1 - jolt_bottom / jolt_top) * max(list_drop)
+    print(f"estimated drop in spy: {est_drop_spy_min}~{est_drop_spy_max}")
+
     corr = np.corrcoef(df["SPY"], df["JOLT"])[0, 1]
     print(f"[All] Correlation between SP500 and JOLT: {corr}")
 
@@ -2042,3 +2076,33 @@ def plot_predict_hmm(
         plt.legend(loc="best")
         plt.title("Hidden Markov Model of Price/MA100")
         plt.savefig(f"figures/predict_hmm_{ticker}.png")
+
+
+def plot_lppls(
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/SP500_lppls.png",
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    sp500 = download(["SPY"], start_date, end_date)
+
+    time = [pd.Timestamp.toordinal(e) for e in sp500.index]
+    price = np.log(sp500["Adj Close"].values)
+    observations = np.array([time, price[:, 0]])
+
+    lppls_model = lppls.LPPLS(observations=observations)
+
+    res = lppls_model.mp_compute_nested_fits(
+        workers=8,
+        window_size=120,
+        smallest_window_size=30,
+        outer_increment=1,
+        inner_increment=5,
+        max_searches=25,
+    )
+
+    lppls_model.plot_confidence_indicators(res)
+
+    plt.savefig(path_savefile)
