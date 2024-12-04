@@ -2096,7 +2096,7 @@ def plot_lppls(
 
     res = lppls_model.mp_compute_nested_fits(
         workers=8,
-        window_size=120,
+        window_size=360,
         smallest_window_size=30,
         outer_increment=1,
         inner_increment=5,
