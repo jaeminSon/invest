@@ -2081,7 +2081,6 @@ def plot_predict_hmm(
 def plot_lppls(
     start_date: str,
     end_date: str = None,
-    path_savefile: str = "figures/SP500_lppls.png",
 ):
     if end_date is None:
         start_date, end_date = period(start_date)
@@ -2094,6 +2093,11 @@ def plot_lppls(
 
     lppls_model = lppls.LPPLS(observations=observations)
 
+    lppls_model.fit(25)
+    lppls_model.plot_fit()
+    plt.savefig("figures/SP500_lppls_fit.png")
+
+    plt.close()
     res = lppls_model.mp_compute_nested_fits(
         workers=8,
         window_size=360,
@@ -2105,4 +2109,43 @@ def plot_lppls(
 
     lppls_model.plot_confidence_indicators(res)
 
-    plt.savefig(path_savefile)
+    plt.savefig("figures/SP500_lppls_risk.png")
+
+
+def plot_return_volume_leverage_with_ma(start_date: str, window=200) -> None:
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
+    start_date, end_date = period(start_date)
+    df = download(tickers, start_date, end_date)
+
+    df_return = yf_return(df)
+
+    df_volume = df["Volume"] / df["Volume"].iloc[0]
+
+    df_volume_avr = df_volume.rolling(window=window).mean().dropna()
+
+    for ticker in tickers:
+        plt.close()
+
+        fig, ax1 = plt.subplots(figsize=(20, 15))
+
+        ax1.plot(df_return[ticker].index, list(df_return[ticker]), "b-", label="return")
+        ax1.set_xlabel("Date")
+        ax1.set_ylabel("return", color="b")
+        ax1.tick_params(axis="y", labelcolor="b")
+
+        ax2 = ax1.twinx()
+        ax2.plot(
+            df_volume[ticker].index, list(df_volume[ticker]), "red", label="volume"
+        )
+        # ax2.plot(
+        #     df_volume_avr[ticker].index,
+        #     list(df_volume_avr[ticker]),
+        #     "orange",
+        #     label="volume",
+        # )
+        ax2.set_ylabel("volume ratio", color="r")
+        ax2.tick_params(axis="y", labelcolor="r")
+
+        fig.legend()
+
+        plt.savefig(os.path.join(f"figures/return_volume_{ticker}.png"))
