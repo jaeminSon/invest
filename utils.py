@@ -2121,30 +2121,24 @@ def plot_return_volume_leverage_with_ma(start_date: str, window=200) -> None:
 
     df_volume = df["Volume"] / df["Volume"].iloc[0]
 
-    df_volume_avr = df_volume.rolling(window=window).mean().dropna()
-
     for ticker in tickers:
         plt.close()
 
         fig, ax1 = plt.subplots(figsize=(20, 15))
 
-        ax1.plot(df_return[ticker].index, list(df_return[ticker]), "b-", label="return")
+        ax1.plot(
+            df_volume[ticker].index, list(df_volume[ticker]), "r", label="volume"
+        )
         ax1.set_xlabel("Date")
-        ax1.set_ylabel("return", color="b")
-        ax1.tick_params(axis="y", labelcolor="b")
+        ax1.set_ylabel("volume ratio", color="r")
+        ax1.tick_params(axis="y", labelcolor="r")
 
         ax2 = ax1.twinx()
         ax2.plot(
-            df_volume[ticker].index, list(df_volume[ticker]), "red", label="volume"
+            df_return[ticker].index, list(df_return[ticker]), "b", label="return"
         )
-        # ax2.plot(
-        #     df_volume_avr[ticker].index,
-        #     list(df_volume_avr[ticker]),
-        #     "orange",
-        #     label="volume",
-        # )
-        ax2.set_ylabel("volume ratio", color="r")
-        ax2.tick_params(axis="y", labelcolor="r")
+        ax2.set_ylabel("return", color="b")
+        ax2.tick_params(axis="y", labelcolor="b")
 
         fig.legend()
 

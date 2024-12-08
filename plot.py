@@ -51,10 +51,10 @@ if __name__ == "__main__":
     ###################
     # plot every week #
     ###################
+    plot_return_leverage_with_ma(start_date="2012-01-01")
     plot_return_volume_leverage_with_ma(
         start_date="2012-01-01"
     )  # find bottom by volume
-    plot_return_leverage_with_ma(start_date="2012-01-01")
     plot_predict_fourier(
         regression_start_date="1900-04-01",
     )
