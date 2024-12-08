@@ -203,7 +203,11 @@ class LPPLS(object):
         # ts = pd.to_datetime(t_obs*10**9)
         # compatible_date = np.array(ts, dtype=np.datetime64)
 
-        lppls_fit = [self.lppls(t, tc, m, w, a, b, c1, c2) for t in t_obs]
+        extended_t = list(range(int(t_obs[-1]), int(t_obs[-1]) + 1000))
+
+        lppls_fit = [
+            self.lppls(t, tc, m, w, a, b, c1, c2) for t in list(t_obs) + extended_t
+        ]
         price = self.observations[1, :]
 
         first = t_obs[0]
@@ -218,7 +222,14 @@ class LPPLS(object):
         #     fontsize=16)
 
         ax1.plot(time_ord, price, label="price", color="black", linewidth=0.75)
-        ax1.plot(time_ord, lppls_fit, label="lppls fit", color="blue", alpha=0.5)
+        extended_time_ord = [pd.Timestamp.fromordinal(d) for d in extended_t]
+        ax1.plot(
+            time_ord + extended_time_ord,
+            lppls_fit,
+            label="lppls fit",
+            color="blue",
+            alpha=0.5,
+        )
         # if show_tc:
         #     ax1.axvline(x=np.array(tc_ts, dtype=np.datetime64), label='tc={}'.format(ts), color='red', alpha=0.5)
         # set grids
@@ -612,7 +623,7 @@ class LPPLS(object):
         return False if m <= 0 or w <= 0 else abs((m * b) / (w * c)) > D_min
 
     def get_oscillations(self, w, tc, t1, t2):
-        return (w / (2.0 * np.pi)) * np.log(abs(tc - t1 + 1e-6) / abs(tc - t2 + 1e-6))
+        return (w / (2.0 * np.pi)) * np.log(abs((tc - t1) / (t2 - t1) + 1e-6))
 
     def get_damping(self, m, w, b, c):
         return (m * np.abs(b)) / (w * np.abs(c))
