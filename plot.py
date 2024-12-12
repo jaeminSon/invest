@@ -18,6 +18,7 @@ from utils import (
     plot_sandp_correlation_by_date,
     plot_SP500_MOVE,
     plot_SP500_Nasdaq,
+    plot_price_divided_by_ma,
     plot_predict_fourier,
     plot_predict_hmm,
     plot_SP500_JOLT,
@@ -38,6 +39,7 @@ if __name__ == "__main__":
     # plot_soaring_stocks(top_k=10, date_back=10)
     # plot_sandp_correlation_by_date("1900-01-01")
     # plot_SP500_Nasdaq(start_date="1900-01-01")
+    # plot_price_divided_by_ma(start_date="1900-04-01")
 
     ##################
     # plot quarterly #

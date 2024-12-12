@@ -4,6 +4,7 @@ import os
 import ssl
 import shutil
 import json
+from io import BytesIO
 
 import numpy as np
 import scipy
@@ -17,6 +18,8 @@ import xml.etree.ElementTree as ET
 import urllib.request as url_request
 import urllib.parse as url_parse
 import urllib.error as url_error
+import imageio
+from PIL import Image
 
 from hmmlearn import hmm
 from lppls import lppls
@@ -2126,20 +2129,52 @@ def plot_return_volume_leverage_with_ma(start_date: str, window=200) -> None:
 
         fig, ax1 = plt.subplots(figsize=(20, 15))
 
-        ax1.plot(
-            df_volume[ticker].index, list(df_volume[ticker]), "r", label="volume"
-        )
+        ax1.plot(df_volume[ticker].index, list(df_volume[ticker]), "r", label="volume")
         ax1.set_xlabel("Date")
         ax1.set_ylabel("volume ratio", color="r")
         ax1.tick_params(axis="y", labelcolor="r")
 
         ax2 = ax1.twinx()
-        ax2.plot(
-            df_return[ticker].index, list(df_return[ticker]), "b", label="return"
-        )
+        ax2.plot(df_return[ticker].index, list(df_return[ticker]), "b", label="return")
         ax2.set_ylabel("return", color="b")
         ax2.tick_params(axis="y", labelcolor="b")
 
         fig.legend()
 
-        plt.savefig(os.path.join(f"figures/return_volume_{ticker}.png"))
+        plt.savefig(f"figures/return_volume_{ticker}.png")
+
+
+def plot_price_divided_by_ma(
+    start_date: str,
+    end_date: str = None,
+    key: str = "Close",
+):
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
+    for ticker in tickers:
+        df = download([ticker], start_date, end_date)
+        df.dropna(inplace=True)
+
+        frames = []
+        for window in range(1, 300):
+            plt.close()
+            fig, ax = plt.subplots(figsize=(16, 8))
+            df_mean = df[key][ticker].to_frame()
+            df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
+            df_mean.dropna(inplace=True)
+
+            df_mean.plot(ax=ax)
+            ax.set_ylim(0, 2)
+
+            buf = BytesIO()
+            plt.savefig(buf, format="png")
+            plt.close()
+            buf.seek(0)
+            image = Image.open(buf)
+            frames.append(image)
+
+        imageio.mimsave(
+            f"figures/price_divided_by_ma_{ticker}.gif", frames, duration=0.2
+        )
