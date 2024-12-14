@@ -1089,17 +1089,25 @@ def need_to_update_portfolio(date: datetime.date, rebalacing_period: int):
 def compute_win_rate_by_ratio_density_function(
     yf_df: pd.DataFrame, ticker: str
 ) -> float:
-    df_mean = yf_df["Close"][ticker].to_frame("price_ratio")
-    df_mean["price_ratio"] /= df_mean["price_ratio"].rolling(window=100).mean()
-    df_mean.dropna(inplace=True)
+    list_win_rate = []
+    for window in [20, 50, 100, 200]:
+        df_mean = yf_df["Close"][ticker].to_frame("price_ratio")
+        df_mean["price_ratio"] /= df_mean["price_ratio"].rolling(window=window).mean()
+        df_mean.dropna(inplace=True)
 
-    p = density_function(list(df_mean["price_ratio"]))
+        p = density_function(list(df_mean["price_ratio"]))
 
-    return win_rate_given_density_function(p, df_mean["price_ratio"].iloc[-1])
+        list_win_rate.append(
+            win_rate_given_density_function(p, df_mean["price_ratio"].iloc[-1])
+        )
+
+    return np.mean(list_win_rate)
 
 
 def compute_win_rates_assets(
-    start_date: str, end_date: str = None, key: str = "Close", ma_window: int = 100
+    start_date: str,
+    end_date: str = None,
+    key: str = "Close",
 ):
     if end_date is None:
         start_date, end_date = period(start_date)
@@ -1109,17 +1117,21 @@ def compute_win_rates_assets(
 
     win_rates = {}
     for ticker in tickers:
-        df_mean = df[key][ticker].to_frame("price_ratio")
-        df_mean["price_ratio"] /= (
-            df_mean["price_ratio"].rolling(window=ma_window).mean()
-        )
-        df_mean.dropna(inplace=True)
+        list_win_rate = []
+        for window in [20, 50, 100, 200]:
+            df_mean = df[key][ticker].to_frame("price_ratio")
+            df_mean["price_ratio"] /= (
+                df_mean["price_ratio"].rolling(window=window).mean()
+            )
+            df_mean.dropna(inplace=True)
 
-        p = density_function(list(df_mean["price_ratio"]))
+            p = density_function(list(df_mean["price_ratio"]))
 
-        win_rates[ticker] = win_rate_given_density_function(
-            p, df_mean["price_ratio"].iloc[-1]
-        )
+            list_win_rate.append(
+                win_rate_given_density_function(p, df_mean["price_ratio"].iloc[-1])
+            )
+
+        win_rates[ticker] = np.mean(list_win_rate)
 
     return win_rates
 
@@ -2158,21 +2170,15 @@ def plot_price_divided_by_ma(
         df = download([ticker], start_date, end_date)
         df.dropna(inplace=True)
 
-        list_date = df.index[300::10]
-        date2frames = defaultdict(list)
+        frames = []
         for window in range(1, 300):
             df_mean = df[key][ticker].to_frame()
             df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
             df_mean.dropna(inplace=True)
 
-            for date in list_date:
-                date2frames[date].append(df_mean[df_mean.index==date][ticker].iloc[0])
-
-        frames = []
-        for date in date2frames:
             plt.close()
             fig, ax = plt.subplots(figsize=(16, 8))
-            plt.plot(date2frames[date])
+            df_mean.plot(ax=ax)
             ax.set_ylim(0, 2)
 
             buf = BytesIO()
@@ -2181,29 +2187,7 @@ def plot_price_divided_by_ma(
             buf.seek(0)
             image = Image.open(buf)
             frames.append(image)
-        print("start")
+
         imageio.mimsave(
-            f"figures/price_divided_curve_by_ma_{ticker}.gif", frames, duration=0.2
+            f"figures/price_divided_by_ma_{ticker}.gif", frames, duration=0.2
         )
-
-        # frames = []
-        # for window in range(1, 300):
-        #     df_mean = df[key][ticker].to_frame()
-        #     df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
-        #     df_mean.dropna(inplace=True)
-
-            # plt.close()
-            # fig, ax = plt.subplots(figsize=(16, 8))
-            # df_mean.plot(ax=ax)
-            # ax.set_ylim(0, 2)
-
-            # buf = BytesIO()
-            # plt.savefig(buf, format="png")
-            # plt.close()
-            # buf.seek(0)
-            # image = Image.open(buf)
-            # frames.append(image)
-
-        # imageio.mimsave(
-        #     f"figures/price_divided_by_ma_{ticker}.gif", frames, duration=0.2
-        # )
