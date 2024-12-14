@@ -1,5 +1,6 @@
 from typing import Tuple, List, Dict, Iterable, Optional
 from datetime import datetime, timedelta
+from collections import defaultdict
 import os
 import ssl
 import shutil
@@ -2157,15 +2158,21 @@ def plot_price_divided_by_ma(
         df = download([ticker], start_date, end_date)
         df.dropna(inplace=True)
 
-        frames = []
+        list_date = df.index[300::10]
+        date2frames = defaultdict(list)
         for window in range(1, 300):
-            plt.close()
-            fig, ax = plt.subplots(figsize=(16, 8))
             df_mean = df[key][ticker].to_frame()
             df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
             df_mean.dropna(inplace=True)
 
-            df_mean.plot(ax=ax)
+            for date in list_date:
+                date2frames[date].append(df_mean[df_mean.index==date][ticker].iloc[0])
+
+        frames = []
+        for date in date2frames:
+            plt.close()
+            fig, ax = plt.subplots(figsize=(16, 8))
+            plt.plot(date2frames[date])
             ax.set_ylim(0, 2)
 
             buf = BytesIO()
@@ -2174,7 +2181,29 @@ def plot_price_divided_by_ma(
             buf.seek(0)
             image = Image.open(buf)
             frames.append(image)
-
+        print("start")
         imageio.mimsave(
-            f"figures/price_divided_by_ma_{ticker}.gif", frames, duration=0.2
+            f"figures/price_divided_curve_by_ma_{ticker}.gif", frames, duration=0.2
         )
+
+        # frames = []
+        # for window in range(1, 300):
+        #     df_mean = df[key][ticker].to_frame()
+        #     df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
+        #     df_mean.dropna(inplace=True)
+
+            # plt.close()
+            # fig, ax = plt.subplots(figsize=(16, 8))
+            # df_mean.plot(ax=ax)
+            # ax.set_ylim(0, 2)
+
+            # buf = BytesIO()
+            # plt.savefig(buf, format="png")
+            # plt.close()
+            # buf.seek(0)
+            # image = Image.open(buf)
+            # frames.append(image)
+
+        # imageio.mimsave(
+        #     f"figures/price_divided_by_ma_{ticker}.gif", frames, duration=0.2
+        # )
