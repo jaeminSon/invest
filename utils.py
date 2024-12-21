@@ -1117,7 +1117,7 @@ def compute_win_rates_assets(
 
     win_rates = {}
     for ticker in tickers:
-        list_win_rate = []
+        window2win_rate = {}
         for window in [20, 50, 100, 200]:
             df_mean = df[key][ticker].to_frame("price_ratio")
             df_mean["price_ratio"] /= (
@@ -1127,13 +1127,57 @@ def compute_win_rates_assets(
 
             p = density_function(list(df_mean["price_ratio"]))
 
-            list_win_rate.append(
-                win_rate_given_density_function(p, df_mean["price_ratio"].iloc[-1])
+            window2win_rate[window] = win_rate_given_density_function(
+                p, df_mean["price_ratio"].iloc[-1]
             )
 
-        win_rates[ticker] = np.mean(list_win_rate)
+        win_rates[ticker] = window2win_rate
 
     return win_rates
+
+
+def compute_bet_ratio(
+    start_date: str,
+    end_date: str = None,
+    key: str = "Close",
+    profit: float = 0.1,
+    loss: float = 0.5,
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    tickers = get_ticker("assets")
+    df = download(tickers, start_date, end_date)
+
+    bet_ratios = {}
+    for ticker in tickers:
+        window2tuple = {}
+        for window in [20, 50, 100, 200]:
+            df_mean = df[key][ticker].to_frame("price_ratio")
+            df_mean["price_ratio"] /= (
+                df_mean["price_ratio"].rolling(window=window).mean()
+            )
+            df_mean.dropna(inplace=True)
+
+            p = density_function(list(df_mean["price_ratio"]))
+
+            win_rate = win_rate_given_density_function(
+                p, df_mean["price_ratio"].iloc[-1]
+            )
+            bet_ratio = kelly(
+                win_rate,
+                profit,
+                loss,
+            )
+            if bet_ratio > 1e-5:
+                window2tuple[window] = {
+                    "p_win": np.round(win_rate, 2),
+                    "bet": np.round(bet_ratio, 2),
+                }
+
+        bet_ratios[ticker] = window2tuple
+
+    return bet_ratios
 
 
 ###############
@@ -1254,6 +1298,40 @@ def compute_net_loss_by_density_function(
 ############
 ### plot ###
 ############
+def plot_kelly(loss: float) -> None:
+    win_rates = np.linspace(0, 1.0, num=101)
+    profits = np.linspace(0, 1.0, num=101)
+
+    data = [[0] * len(profits) for _ in range(len(win_rates))]
+    for i in range(len(win_rates)):
+        for j in range(len(profits)):
+            ratio = kelly(win_rates[i], profits[j], loss)
+            data[i][j] = ratio if ratio > 0 else 0
+
+    plt.close()
+    plt.figure(figsize=(20, 15))
+    plt.imshow(
+        np.array(data),
+        cmap="viridis",
+        interpolation="nearest",
+        vmin=0,
+        vmax=1,
+    )
+    plt.title(f"Loss@{loss}")
+    plt.xlabel("Net profit")
+    plt.xticks(
+        range(0, len(profits), len(profits) // 5),
+        [profits[i] for i in range(0, len(profits), len(profits) // 5)],
+    )
+    plt.yticks(
+        range(0, len(win_rates), len(win_rates) // 5),
+        [win_rates[i] for i in range(0, len(win_rates), len(win_rates) // 5)],
+    )
+    plt.colorbar()
+
+    plt.savefig(f"kelly_criterion_@{loss}.png")
+
+
 def plot_kelly_2d(path_savefile="kelly_criterion.png") -> None:
     win_rates = np.linspace(0, 1.0, num=101)
     profits = np.linspace(0, 1.0, num=101)
@@ -1346,6 +1424,8 @@ def plot_return_leverage_with_ma(
 
     for ticker in tickers:
         plt.plot(df_return[ticker].index, list(df_return[ticker]), label=ticker)
+
+    for ticker in tickers:
         # plt.plot(df_ma5[ticker].index, list(df_ma5[ticker]), label=ticker + "_ma5")
         # plt.plot(df_ma10[ticker].index, list(df_ma10[ticker]), label=ticker + "_ma10")
         # plt.plot(df_ma20[ticker].index, list(df_ma20[ticker]), label=ticker + "_ma20")
