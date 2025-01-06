@@ -30,8 +30,7 @@ if __name__ == "__main__":
     ########################
     # for research purpose #
     ########################
-    plot_kelly(0.5)
-    exit(1)
+    # plot_kelly(0.5)
     # plot_kelly_2d()
     # plot_SP500_MOVE(start_date="1900-01-01")
     # plot_portfolio_via_sampling("2012-01-01")
