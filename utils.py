@@ -2271,3 +2271,36 @@ def plot_price_divided_by_ma(
         imageio.mimsave(
             f"figures/price_divided_by_ma_{ticker}.gif", frames, duration=0.2
         )
+
+
+def plot_density_function(
+    start_date: str,
+    end_date: str = None,
+    key: str = "Close",
+    window=100,
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
+    df = download(tickers, start_date, end_date)
+
+    for ticker in tickers:
+        df_mean = df[key][ticker].to_frame("price_ratio")
+        df_mean["price_ratio"] /= df_mean["price_ratio"].rolling(window=window).mean()
+        df_mean.dropna(inplace=True)
+
+        p = density_function(list(df_mean["price_ratio"]))
+
+        x = np.linspace(0, 2, 1000)
+        y = [p(i)[0] for i in x]
+
+        plt.close()
+
+        plt.figure(figsize=(20, 15))
+        plt.plot(x, y, color="red")
+        plt.hist(df_mean["price_ratio"], bins=100, color="orange", density=True)
+        plt.title(f"Density function of price_ratio-{ticker}")
+        plt.xlabel("Price Ratio")
+
+        plt.savefig(f"figures/price_ratio_density_function_{ticker}.png")

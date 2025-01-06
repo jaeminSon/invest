@@ -23,6 +23,7 @@ from utils import (
     plot_predict_fourier,
     plot_predict_hmm,
     plot_SP500_JOLT,
+    plot_density_function,
     plot_lppls,
 )
 
@@ -42,6 +43,7 @@ if __name__ == "__main__":
     # plot_sandp_correlation_by_date("1900-01-01")
     # plot_SP500_Nasdaq(start_date="1900-01-01")
     # plot_price_divided_by_ma(start_date="1900-04-01")
+    plot_density_function(start_date="1900-04-01")
 
     ##################
     # plot quarterly #
@@ -50,7 +52,7 @@ if __name__ == "__main__":
     # plot_correlation(start_date="2012-01-01", target="assets")
     # plot_return_sector(start_date="2000-01-01")
     # plot_return_etf(start_date="2000-01-01")
-    plot_SP500_JOLT(start_date="1900-01-01")
+    # plot_SP500_JOLT(start_date="1900-01-01")
 
     # ###################
     # # plot every week #
