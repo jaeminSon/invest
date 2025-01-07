@@ -2274,6 +2274,78 @@ def plot_price_divided_by_ma(
         )
 
 
+def plot_price_divided_by_ma_2d(
+    start_date: str,
+    end_date: str = None,
+    key: str = "Close",
+):
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
+    for ticker in tickers:
+        df = download([ticker], start_date, end_date)
+        df.dropna(inplace=True)
+
+        plane = []
+        for window in range(1, 300):
+            df_mean = df[key][ticker].to_frame()
+            df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
+            plane.append(list(df_mean[ticker]))
+
+        plane = np.array(plane)
+        plane[np.isnan(plane)] = 1
+
+        plt.close()
+        plt.plot(figsize=(16, 16))
+        plt.imshow(plane, cmap="viridis", interpolation="nearest", aspect="auto")
+        plt.colorbar()
+        plt.title("2D plot of price divided by moving average")
+        plt.xlabel("time")
+        plt.ylabel("window size")
+        plt.savefig(f"figures/price_ratio_2d_plane_{ticker}.png")
+
+
+def plot_price_divided_by_ma_3d(
+    start_date: str,
+    end_date: str = None,
+    key: str = "Close",
+):
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
+    tickers = ["SPY", "SPXL", "TQQQ", "SOXL"]
+    for ticker in tickers:
+        df = download([ticker], start_date, end_date)
+        df.dropna(inplace=True)
+
+        plane = []
+        for window in range(1, 300):
+            df_mean = df[key][ticker].to_frame()
+            df_mean[ticker] /= df_mean[ticker].rolling(window=window).mean()
+            plane.append(list(df_mean[ticker]))
+
+        plane = np.array(plane)
+        plane[np.isnan(plane)] = 1
+
+        x = np.arange(plane.shape[1])
+        y = np.arange(plane.shape[0])
+        x, y = np.meshgrid(x, y)
+
+        plt.close()
+        fig = plt.figure(figsize=(16, 16))
+        ax = fig.add_subplot(111, projection="3d")
+        surface = ax.plot_surface(
+            x, y, plane, cmap="viridis", rstride=1, cstride=1, linewidth=0
+        )
+        fig.colorbar(surface, ax=ax, shrink=0.5, aspect=10)
+        ax.set_title("3D surface of price divided by moving average")
+        ax.set_xlabel("time")
+        ax.set_ylabel("window size")
+        ax.set_zlabel("value")
+        plt.savefig(f"figures/price_ratio_3d_plane_{ticker}.png")
+
+
 def plot_density_function(
     start_date: str,
     end_date: str = None,
