@@ -20,6 +20,8 @@ from utils import (
     plot_SP500_MOVE,
     plot_SP500_Nasdaq,
     plot_price_divided_by_ma,
+    plot_price_divided_by_ma_2d,
+    plot_price_divided_by_ma_3d,
     plot_predict_fourier,
     plot_predict_hmm,
     plot_SP500_JOLT,
@@ -43,7 +45,11 @@ if __name__ == "__main__":
     # plot_sandp_correlation_by_date("1900-01-01")
     # plot_SP500_Nasdaq(start_date="1900-01-01")
     # plot_price_divided_by_ma(start_date="1900-04-01")
-    plot_density_function(start_date="1900-04-01")
+    # plot_price_divided_by_ma_2d(start_date="1900-04-01")
+    plot_price_divided_by_ma_3d(start_date="1900-04-01")
+    exit(1)
+    # plot_density_function(start_date="1900-04-01")
+    # plot_lppls(start_date="1900-01-01")
 
     ##################
     # plot quarterly #
@@ -71,7 +77,6 @@ if __name__ == "__main__":
     plot_nasdaq_divided_by_m2(start_date="1900-01-01")
     plot_sandp_divided_by_m2(start_date="1900-01-01")
     exit(1)
-    plot_lppls(start_date="1900-01-01")
 
     ############
     # backtest #
