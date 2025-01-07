@@ -1409,18 +1409,19 @@ def plot_return_leverage_with_ma(
     plt.close()
     plt.figure(figsize=(20, 15))
     df_return = yf_return(df)
+    denominator = df["Close"].iloc[0]
     # df_ma5 = df["Close"].rolling(window=5).mean().dropna()
     # df_ma5 /= df_ma5.iloc[0]
     # df_ma10 = df["Close"].rolling(window=10).mean().dropna()
     # df_ma10 /= df_ma10.iloc[0]
     df_ma20 = df["Close"].rolling(window=20).mean().dropna()
-    df_ma20 /= df_ma20.iloc[0]
+    df_ma20 /= denominator
     df_ma50 = df["Close"].rolling(window=50).mean().dropna()
-    df_ma50 /= df_ma50.iloc[0]
+    df_ma50 /= denominator
     df_ma100 = df["Close"].rolling(window=100).mean().dropna()
-    df_ma100 /= df_ma100.iloc[0]
+    df_ma100 /= denominator
     df_ma200 = df["Close"].rolling(window=200).mean().dropna()
-    df_ma200 /= df_ma200.iloc[0]
+    df_ma200 /= denominator
 
     for ticker in tickers:
         plt.plot(df_return[ticker].index, list(df_return[ticker]), label=ticker)
