@@ -1860,6 +1860,20 @@ def plot_sandp_divided_by_m2(
     plot_A_divided_by_B(sandp, m2, "S&P / M2", 12, path_savefile)
 
 
+def plot_sandp_divided_by_gdp(
+    start_date: str,
+    end_date: str = None,
+    path_savefile: str = "figures/SP500_divided_by_gdp.png",
+):
+    if end_date is None:
+        start_date, end_date = period(start_date)
+
+    sandp = get_fred_series("s&p500", start_date, end_date)
+    gdp = get_fred_series("gdp", start_date, end_date)
+
+    plot_A_divided_by_B(sandp, gdp, "S&P / GDP", 4, path_savefile)
+
+
 def plot_nasdaq_divided_by_m2(
     start_date: str,
     end_date: str = None,
