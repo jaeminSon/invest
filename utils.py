@@ -1,6 +1,5 @@
 from typing import Tuple, List, Dict, Iterable, Optional
 from datetime import datetime, timedelta
-from collections import defaultdict
 import os
 import ssl
 import shutil
@@ -9,7 +8,6 @@ from io import BytesIO
 
 import numpy as np
 import scipy
-import scipy.stats
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -2309,7 +2307,6 @@ def plot_price_divided_by_ma_2d(
 
         plane = np.array(plane)
         plane[np.isnan(plane)] = 1
-
         plt.close()
         plt.plot(figsize=(16, 16))
         plt.imshow(plane, cmap="viridis", interpolation="nearest", aspect="auto")
@@ -2318,6 +2315,46 @@ def plot_price_divided_by_ma_2d(
         plt.xlabel("time")
         plt.ylabel("window size")
         plt.savefig(f"figures/price_ratio_2d_plane_{ticker}.png")
+
+        size = 100
+        conv_filter = np.ones((size, size)) / size**2
+        convolved_plane = scipy.ndimage.convolve(
+            plane, conv_filter, mode="nearest"
+        )
+        plt.close()
+        plt.plot(figsize=(16, 16))
+        plt.imshow(
+            convolved_plane,
+            cmap="viridis",
+            interpolation="nearest",
+            aspect="auto",
+        )
+        plt.colorbar()
+        plt.title("2D plot of price divided by moving average")
+        plt.xlabel("time")
+        plt.ylabel("window size")
+        plt.savefig(f"figures/price_ratio_2d_plane_{ticker}_smoothed.png")
+
+        size = 20
+        step_filter = np.ones((size, size))
+        step_filter[:, size // 2 :] = -1
+        sobel_convolved_plane = scipy.ndimage.convolve(
+            convolved_plane, step_filter, mode="nearest"
+        )
+        sobel_convolved_plane[sobel_convolved_plane < 0] = 0
+        plt.close()
+        plt.plot(figsize=(16, 16))
+        plt.imshow(
+            sobel_convolved_plane,
+            cmap="viridis",
+            interpolation="nearest",
+            aspect="auto",
+        )
+        plt.colorbar()
+        plt.title("2D plot of price divided by moving average")
+        plt.xlabel("time")
+        plt.ylabel("window size")
+        plt.savefig(f"figures/price_ratio_2d_plane_{ticker}_step.png")
 
 
 def plot_price_divided_by_ma_3d(
@@ -2391,3 +2428,11 @@ def plot_density_function(
         plt.xlabel("Price Ratio")
 
         plt.savefig(f"figures/price_ratio_density_function_{ticker}.png")
+
+
+def warnings():
+    list_warning = [
+        "Never trade at premarket or postmarket",
+        "Bet size should be 1/64, 1/32, ..., 1/2",
+    ]
+    return "".join([f"({i+1}) {c}.\n" for i, c in enumerate(list_warning)])

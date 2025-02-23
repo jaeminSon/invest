@@ -14,6 +14,7 @@ from utils import (
     plot_rebalancing_backtest,
     plot_portfolio_via_sampling,
     plot_sandp_divided_by_m2,
+    plot_sandp_divided_by_gdp,
     plot_nasdaq_divided_by_m2,
     plot_nasdaq_divided_by_gdp,
     plot_sandp_correlation_by_date,
@@ -45,9 +46,7 @@ if __name__ == "__main__":
     # plot_sandp_correlation_by_date("1900-01-01")
     # plot_SP500_Nasdaq(start_date="1900-01-01")
     # plot_price_divided_by_ma(start_date="1900-04-01")
-    # plot_price_divided_by_ma_2d(start_date="1900-04-01")
-    plot_price_divided_by_ma_3d(start_date="1900-04-01")
-    exit(1)
+    # plot_price_divided_by_ma_3d(start_date="1900-04-01")
     # plot_density_function(start_date="1900-04-01")
     # plot_lppls(start_date="1900-01-01")
 
@@ -67,14 +66,17 @@ if __name__ == "__main__":
     plot_return_volume_leverage_with_ma(
         start_date="2012-01-01"
     )  # find bottom by volume
+    plot_price_divided_by_ma_2d(start_date="1900-04-01")
     plot_predict_fourier(
         regression_start_date="1900-04-01",
     )
+    exit(1)
     plot_predict_hmm(
         regression_start_date="1900-04-01",
     )
     plot_nasdaq_divided_by_gdp(start_date="1900-01-01")
     plot_nasdaq_divided_by_m2(start_date="1900-01-01")
+    plot_sandp_divided_by_gdp(start_date="1900-01-01")
     plot_sandp_divided_by_m2(start_date="1900-01-01")
     exit(1)
 
