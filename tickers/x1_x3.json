@@ -1,0 +1,26 @@
+[
+    [
+        "SPY",
+        "s&p500"
+    ],
+    [
+        "SPXL",
+        "s&p500 X3"
+    ],
+    [
+        "TQQQ",
+        "Nasdaq X3"
+    ],
+    [
+        "QQQ",
+        "Nasdaq"
+    ],
+    [
+        "SOXX",
+        "Semiconductor"
+    ],
+    [
+        "SOXL",
+        "Semiconductor X3"
+    ]
+]

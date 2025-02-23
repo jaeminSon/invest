@@ -1,0 +1,46 @@
+[
+    [
+        "SPY",
+        "S&P"
+    ],
+    [
+        "DIA",
+        "Dow"
+    ],
+    [
+        "QQQ",
+        "Nasdaq"
+    ],
+    [
+        "IWM",
+        "Russell"
+    ],
+    [
+        "GLD",
+        "Gold"
+    ],
+    [
+        "IBIT",
+        "Bitcoin"
+    ],
+    [
+        "IEF",
+        "Bond (7-10Y)"
+    ],
+    [
+        "TLT",
+        "Bond (20+Y)"
+    ],
+    [
+        "USO",
+        "Oil"
+    ],
+    [
+        "DBA",
+        "Agriculutre"
+    ],
+    [
+        "DBB",
+        "Base Metals"
+    ]
+]

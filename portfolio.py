@@ -1,11 +1,11 @@
-from utils import (
-    write_new_portfolio,
+from gauger import (
+    warnings,
     compute_budge,
-    compute_bet_ratio,
+    bet_ratios_by_group,
 )
 
 if __name__ == "__main__":
-    print("(prob_win, bet_ratio): ", compute_bet_ratio("1900-01-01"))
+    # print(warnings())
+    print("(profit=0.1, loss=0.5)", bet_ratios_by_group("leverage", "1900-01-01"))
     exit(1)
-    write_new_portfolio(rebalacing_period=10, path_savefile="portfolio.json")
     print(compute_budge(total_budget=5_000_000 / 1450, path_portfolio="portfolio.json"))
