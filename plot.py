@@ -90,8 +90,8 @@ if __name__ == "__main__":
 
     plot_density_function("leverage", start_date="1900-04-01", savedir="figures")
     plot_density_function(
-        "sp500", start_date="1900-04-01", savedir="figures", domain=[0.6, 1.25]
+        "basic_index", start_date="1900-04-01", savedir="figures", domain=[0.6, 1.25]
     )
 
-    # plot_price_ratio("leverage", start_date="1900-04-01", savedir="figures")
-    # plot_price_ratio("sp500", start_date="1900-04-01", savedir="figures")
+    plot_price_ratio("leverage", start_date="1900-04-01", savedir="figures")
+    plot_price_ratio("basic_index", start_date="1900-04-01", savedir="figures")
