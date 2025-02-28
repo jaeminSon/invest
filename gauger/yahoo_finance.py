@@ -38,14 +38,7 @@ def download_by_group(
 
 
 def download(symbol, start_date, end_date) -> pd.DataFrame:
-    stock_data = yf.download(symbol, start=start_date, end=end_date, auto_adjust=True)
-
-    if isinstance(symbol, list) and len(symbol) == 1:
-        stock_data.columns = pd.MultiIndex.from_tuples(
-            [(c, symbol[0]) for c in stock_data.columns]
-        )
-
-    return stock_data
+    return yf.download(symbol, start=start_date, end=end_date, auto_adjust=True)
 
 
 def period(start_date: Optional[str] = None, date_back: int = None) -> Tuple[str, str]:
