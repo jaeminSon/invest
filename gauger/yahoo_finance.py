@@ -53,7 +53,7 @@ def period(start_date: Optional[str] = None, date_back: int = None) -> Tuple[str
     elif start_date:
         try:
             datetime.strptime(start_date, "%Y-%m-%d")
-        except:
+        except Exception:
             raise ValueError(
                 f"Failed to process {start_date}. start_date should be YYYY-MM-DD format."
             )
