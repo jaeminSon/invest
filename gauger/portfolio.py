@@ -1,8 +1,8 @@
-import numpy as np
-import pandas as pd
-from typing import List
+from typing import List, Dict
 
+import numpy as np
 import scipy
+import pandas as pd
 
 from .yahoo_finance import download, get_ticker, period
 
@@ -56,6 +56,50 @@ def compute_budge(total_budget: int):
 
 def price_ratio(price: pd.Series, window: int) -> pd.Series:
     return (price / price.rolling(window=window).mean()).dropna()
+
+
+def pdf_price_ratio(price: pd.Series, window: int) -> callable:
+    p_ratio = price_ratio(price, window)
+    return density_function(list(p_ratio))
+
+
+def bet_ratios_martingale_from_pdf(
+    p: callable,
+    min_bet: float = 1.0 / 128,
+    max_bet: float = 1.0 / 4,
+    n_samples_integral: int = 1000,
+) -> Dict:
+    n_multiples = np.log2(max_bet / min_bet)
+    assert n_multiples.is_integer(), "max_bet / min_bet should be a power of 2."
+    prob_underperform = integral(p, start=0, end=1)
+    n_regions = n_multiples + 1
+    prob_per_region = prob_underperform / n_regions
+
+    p_ratio2bet_ratio = {1: min_bet}
+    curr_bet_ratio = 2 * min_bet
+    p_cum_region = 0
+    x = np.linspace(0, 1, n_samples_integral)
+    i = len(x) - 1
+    while (curr_bet_ratio < max_bet + 1e-6) and (i > 0):
+        p_cum_region += (x[i] - x[i - 1]) * p(x[i - 1])
+        if p_cum_region > prob_per_region:
+            p_ratio2bet_ratio[x[i - 1]] = curr_bet_ratio
+            p_cum_region -= prob_per_region
+            curr_bet_ratio *= 2
+        i -= 1
+
+    return p_ratio2bet_ratio
+
+
+def bet_ratios_martingale(
+    price: pd.Series,
+    window: int,
+    min_bet: float = 1.0 / 128,
+    max_bet: float = 1.0 / 4,
+    n_samples_integral: int = 1000,
+) -> Dict:
+    p = pdf_price_ratio(price, window)
+    return bet_ratios_martingale_from_pdf(p, min_bet, max_bet, n_samples_integral)
 
 
 def win_rate(price: pd.Series, window: int) -> float:

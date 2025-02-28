@@ -1,5 +1,6 @@
 import os
-from typing import Dict
+from fractions import Fraction
+from typing import Dict, Tuple
 
 import numpy as np
 import scipy
@@ -16,7 +17,12 @@ from .yahoo_finance import (
     get_ticker,
 )
 from .fred import get_fred_series
-from .portfolio import kelly_cube, price_ratio, density_function
+from .portfolio import (
+    kelly_cube,
+    price_ratio,
+    density_function,
+    bet_ratios_martingale_from_pdf,
+)
 
 
 DIR_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
@@ -432,7 +438,11 @@ def plot_density_function(
     key: str = "Close",
     window: int = 100,
     savedir: str = "figures",
+    domain: Tuple[int, int] = (0, 2),
 ):
+    def nearest_index(axis, value):
+        return min(range(len(axis)), key=lambda i: abs(axis[i] - value))
+
     df = download_by_group(group, start_date, end_date)
     tickers = df[key].columns
 
@@ -441,12 +451,12 @@ def plot_density_function(
 
         p = density_function(list(p_ratio))
 
-        x = np.linspace(0, 2, 1000)
+        bet_ratios = bet_ratios_martingale_from_pdf(p)
+
+        x = np.linspace(domain[0], domain[1], 1000)
         y = [p(i)[0] for i in x]
 
-        index_curr_p_ratio = min(
-            range(len(x)), key=lambda i: abs(x[i] - p_ratio.iloc[-1])
-        )
+        index_curr_p_ratio = nearest_index(x, p_ratio.iloc[-1])
         x_curr = x[index_curr_p_ratio]
         y_curr = y[index_curr_p_ratio]
 
@@ -461,7 +471,31 @@ def plot_density_function(
             marker="v",
             s=200,
         )
-        plt.plot([x_curr, x_curr], [y_curr, 0], linestyle="--", color="blue")
+        p_r_sorted = sorted(bet_ratios.keys())
+        indices_nearest_x = [nearest_index(x, p_r) for p_r in p_r_sorted]
+        for i, p_r in enumerate(p_r_sorted):
+            bet = bet_ratios[p_r]
+            frac = Fraction(bet).limit_denominator()
+            i_nearest_x = indices_nearest_x[i]
+            plt.plot(
+                [x[i_nearest_x], x[i_nearest_x]],
+                [y[i_nearest_x], 0],
+                linestyle="--",
+                color="blue",
+            )
+            plt.text(
+                (x[i_nearest_x] + x[indices_nearest_x[i - 1]]) / 2
+                if i > 0
+                else x[i_nearest_x] - 0.2,
+                y[i_nearest_x] / 2,
+                f"{frac}",
+                fontsize=12,
+                color="blue"
+                if (i_nearest_x == 0 and x_curr < x[0])
+                or (x[indices_nearest_x[i - 1]] <= x_curr < x[i_nearest_x])
+                else "red",
+            )
+
         plt.title(f"Density function of price_ratio for {ticker} (MA:{window})")
         plt.xlabel("Price Ratio")
 
