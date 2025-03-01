@@ -11,8 +11,8 @@ from gauger import (
     plot_nasdaq_divided_by_gdp,
     plot_SP500_JOLT,
     plot_return_with_ma,
-    plot_price_ratio,
-    plot_density_function,
+    plot_series_price_ratio,
+    plot_pdf_price_ratio,
 )
 
 if __name__ == "__main__":
@@ -82,16 +82,16 @@ if __name__ == "__main__":
     ##############
     # plot daily #
     ##############
-    # plot_return_with_ma(
-    #     "leverage",
-    #     start_date="1900-01-01",
-    #     path_savefile=os.path.join("figures", "return_leverage.png"),
-    # )
+    plot_return_with_ma(
+        "leverage",
+        start_date="1900-01-01",
+        path_savefile=os.path.join("figures", "return_leverage.png"),
+    )
 
-    plot_density_function("leverage", start_date="1900-04-01", savedir="figures")
-    plot_density_function(
+    plot_pdf_price_ratio("leverage", start_date="1900-04-01", savedir="figures")
+    plot_pdf_price_ratio(
         "basic_index", start_date="1900-04-01", savedir="figures", domain=[0.6, 1.25]
     )
 
-    plot_price_ratio("leverage", start_date="1900-04-01", savedir="figures")
-    plot_price_ratio("basic_index", start_date="1900-04-01", savedir="figures")
+    plot_series_price_ratio("leverage", start_date="1900-04-01", savedir="figures")
+    plot_series_price_ratio("basic_index", start_date="1900-04-01", savedir="figures")

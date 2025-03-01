@@ -408,7 +408,7 @@ def plot_return_with_ma(
     plt.savefig(path_savefile)
 
 
-def plot_price_ratio(
+def plot_series_price_ratio(
     group: str,
     start_date: str,
     end_date: str = None,
@@ -431,7 +431,7 @@ def plot_price_ratio(
         )
 
 
-def plot_density_function(
+def plot_pdf_price_ratio(
     group: str,
     start_date: str,
     end_date: str = None,
