@@ -1,6 +1,6 @@
 import os
 from fractions import Fraction
-from typing import Dict, Tuple
+from typing import Dict, List
 
 import numpy as np
 import scipy
@@ -19,7 +19,7 @@ from .yahoo_finance import (
 from .fred import get_fred_series
 from .portfolio import (
     kelly_cube,
-    price_ratio,
+    divide_by_rolling_ma,
     density_function,
     bet_ratios_martingale_from_pdf,
 )
@@ -173,53 +173,77 @@ def plot_sort_by_return(
 
 
 def plot_mean_std(
-    df: pd.DataFrame, column_name: str, path_savefile: str, width_plot: float = 2
+    df: pd.DataFrame | List[pd.DataFrame],
+    column_name: str | List[str],
+    path_savefile: str,
+    width_plot: float = 2,
 ):
-    assert "mean" in df.columns and column_name in df.columns
+    def add_std(df: pd.DataFrame):
+        assert "mean" in df.columns
+        std = np.std(df["mean"])
+        df["+1s"] = df["mean"] + std
+        df["+2s"] = df["mean"] + 2 * std
+        df["-1s"] = df["mean"] - std
+        df["-2s"] = df["mean"] - 2 * std
+        return df.dropna()
 
-    std = np.std(df["mean"])
-    df["+1s"] = df["mean"] + std
-    df["+2s"] = df["mean"] + 2 * std
-    df["-1s"] = df["mean"] - std
-    df["-2s"] = df["mean"] - 2 * std
-    df.dropna(inplace=True)
+    def config_plots(column_name: str, width_plot: float):
+        return {
+            "color": {
+                column_name: "blue",
+                "mean": "yellow",
+                "+1s": "orange",
+                "+2s": "red",
+                "-1s": "green",
+                "-2s": "lime",
+            },
+            "style": {
+                column_name: "-",
+                "mean": "--",
+                "+1s": "--",
+                "+2s": "--",
+                "-1s": "--",
+                "-2s": "--",
+            },
+            "linewidth": {
+                column_name: width_plot,
+                "mean": 1,
+                "+1s": 1,
+                "+2s": 1,
+                "-1s": 1,
+                "-2s": 1,
+            },
+        }
 
-    plt.close()
-    fig, ax = plt.subplots(figsize=(16, 8))
-    colors = {
-        column_name: "blue",
-        "mean": "yellow",
-        "+1s": "orange",
-        "+2s": "red",
-        "-1s": "green",
-        "-2s": "lime",
-    }
-    styles = {
-        column_name: "-",
-        "mean": "--",
-        "+1s": "--",
-        "+2s": "--",
-        "-1s": "--",
-        "-2s": "--",
-    }
-    linewidths = {
-        column_name: width_plot,
-        "mean": 1,
-        "+1s": 1,
-        "+2s": 1,
-        "-1s": 1,
-        "-2s": 1,
-    }
-    for column in df.columns:
-        df[column].plot(
-            ax=ax,
-            color=colors[column],
-            linestyle=styles[column],
-            linewidth=linewidths[column],
-            label=column,
+    if isinstance(df, pd.DataFrame):
+        df = add_std(df)
+        plt.close()
+        fig, ax = plt.subplots(figsize=(16, 8))
+        plot_kwargs = config_plots(column_name, width_plot)
+        for column in df.columns:
+            df[column].plot(
+                ax=ax, label=column, **{k: plot_kwargs[k][column] for k in plot_kwargs}
+            )
+        plt.legend(loc="best")
+        plt.savefig(path_savefile)
+    elif isinstance(df, list) and isinstance(column_name, list):
+        assert len(df) == len(column_name) == 2, "Currently Price and Volume only."
+        plt.close()
+        fig, axes = plt.subplots(
+            2, 1, gridspec_kw={"height_ratios": [5, 1]}, figsize=(20, 18)
         )
-    plt.legend(loc="best")
-    plt.savefig(path_savefile)
+        for i in range(2):
+            df_std_added = add_std(df[i])
+            plot_kwargs = config_plots(column_name[i], width_plot)
+            for column in df_std_added.columns:
+                df_std_added[column].plot(
+                    ax=axes[i],
+                    label=column,
+                    **{k: plot_kwargs[k][column] for k in plot_kwargs},
+                )
+            axes[i].legend(loc="best")
+        plt.tight_layout()
+        plt.savefig(path_savefile)
 
 
 def plot_A_divided_by_B(
@@ -341,6 +365,7 @@ def plot_return_with_ma(
     df = download_by_group(group, start_date)
     df_return = yf_return(df)
     df_ma = df_return.rolling(window=window).mean().dropna()
+    df_return = df_return.loc[df_ma.index]
     df_volume = df["Volume"].loc[df_ma.index]
 
     tickers = df_return.columns
@@ -408,95 +433,115 @@ def plot_return_with_ma(
     plt.savefig(path_savefile)
 
 
-def plot_series_price_ratio(
+def plot_series(
     group: str,
     start_date: str,
     end_date: str = None,
-    key: str = "Close",
     window: int = 200,
     savedir: str = "figures",
 ) -> None:
     df = download_by_group(group, start_date, end_date)
-    tickers = df[key].columns
+    tickers = df["Volume"].columns
 
     for ticker in tickers:
-        p_ratio = price_ratio(df[key][ticker], window)
+        p_ratio = divide_by_rolling_ma(df["Close"][ticker], window)
         df_p_ratio = p_ratio.to_frame(name=ticker)
         df_p_ratio["mean"] = p_ratio.rolling(window=window).mean()
+
+        v_ratio = divide_by_rolling_ma(df["Volume"][ticker], window)
+        df_v_ratio = v_ratio.to_frame(name=ticker)
+        df_v_ratio["mean"] = v_ratio.rolling(window=window).mean()
+
         plot_mean_std(
-            df_p_ratio,
-            ticker,
-            width_plot=1.2,
-            path_savefile=os.path.join(savedir, f"p_ratio_{ticker}.png"),
+            [df_p_ratio, df_v_ratio],
+            [ticker, ticker],
+            width_plot=1.1,
+            path_savefile=os.path.join(savedir, f"div_by_ma_{ticker}.png"),
         )
 
 
-def plot_pdf_price_ratio(
+def plot_pdf(
     group: str,
     start_date: str,
     end_date: str = None,
-    key: str = "Close",
     window: int = 100,
     savedir: str = "figures",
-    domain: Tuple[int, int] = (0, 2),
 ):
     def nearest_index(axis, value):
         return min(range(len(axis)), key=lambda i: abs(axis[i] - value))
 
     df = download_by_group(group, start_date, end_date)
-    tickers = df[key].columns
+    tickers = df["Close"].columns
 
     for ticker in tickers:
-        p_ratio = price_ratio(df[key][ticker], window)
-
-        p = density_function(list(p_ratio))
-
-        bet_ratios = bet_ratios_martingale_from_pdf(p)
-
-        x = np.linspace(domain[0], domain[1], 1000)
-        y = [p(i)[0] for i in x]
-
-        index_curr_p_ratio = nearest_index(x, p_ratio.iloc[-1])
-        x_curr = x[index_curr_p_ratio]
-        y_curr = y[index_curr_p_ratio]
-
         plt.close()
-        plt.figure(figsize=(20, 15))
-        plt.hist(p_ratio, bins=100, color="orange", density=True)
-        plt.plot(x, y, color="red")
-        plt.scatter(
-            [x_curr],
-            [y_curr],
-            color="blue",
-            marker="v",
-            s=200,
+        fig, axes = plt.subplots(
+            1, 2, gridspec_kw={"width_ratios": [1, 1]}, figsize=(20, 9)
         )
-        p_r_sorted = sorted(bet_ratios.keys())
-        indices_nearest_x = [nearest_index(x, p_r) for p_r in p_r_sorted]
-        for i, p_r in enumerate(p_r_sorted):
-            bet = bet_ratios[p_r]
-            frac = Fraction(bet).limit_denominator()
-            i_nearest_x = indices_nearest_x[i]
-            plt.plot(
-                [x[i_nearest_x], x[i_nearest_x]],
-                [y[i_nearest_x], 0],
-                linestyle="--",
+        for i_axis, dtype in enumerate(["price", "log-volume"]):
+            if dtype == "price":
+                series = divide_by_rolling_ma(df["Close"][ticker], window)
+            elif dtype == "log-volume":
+                series = np.log(divide_by_rolling_ma(df["Volume"][ticker], window))
+            p = density_function(list(series))
+            if dtype == "price":
+                x = np.linspace(0, 2, 1000)
+            elif dtype == "log-volume":
+                x = np.linspace(-2, 2, 1000)
+            y = [p(i)[0] for i in x]
+            index_curr = nearest_index(x, series.iloc[-1])
+            x_curr = x[index_curr]
+            y_curr = y[index_curr]
+
+            axes[i_axis].hist(series, bins=100, color="orange", density=True)
+            axes[i_axis].plot(x, y, color="red")
+            axes[i_axis].scatter(
+                [x_curr],
+                [y_curr],
                 color="blue",
+                marker="v",
+                s=100,
             )
-            plt.text(
-                (x[i_nearest_x] + x[indices_nearest_x[i - 1]]) / 2
-                if i > 0
-                else x[i_nearest_x] - 0.2,
-                y[i_nearest_x] / 2,
-                f"{frac}",
-                fontsize=12,
-                color="blue"
-                if (i_nearest_x == 0 and x_curr < x[0])
-                or (x[indices_nearest_x[i - 1]] <= x_curr < x[i_nearest_x])
-                else "red",
+            axes[i_axis].plot(
+                [x_curr, x_curr],
+                [y_curr, 0],
+                linestyle="--",
+                color="red",
             )
 
-        plt.title(f"Density function of price_ratio for {ticker} (MA:{window})")
-        plt.xlabel("Price Ratio")
+            if dtype == "price":
+                bet_ratios = bet_ratios_martingale_from_pdf(p)
+                p_r_sorted = sorted(bet_ratios.keys())
+                indices_nearest_x = [nearest_index(x, p_r) for p_r in p_r_sorted]
+                for i, p_r in enumerate(p_r_sorted):
+                    bet = bet_ratios[p_r]
+                    frac = Fraction(bet).limit_denominator()
+                    i_nearest_x = indices_nearest_x[i]
+                    axes[i_axis].plot(
+                        [x[i_nearest_x], x[i_nearest_x]],
+                        [y[i_nearest_x], 0],
+                        linestyle="--",
+                        color="blue",
+                    )
+                    axes[i_axis].text(
+                        (x[i_nearest_x] + x[indices_nearest_x[i - 1]]) / 2
+                        if i > 0
+                        else x[i_nearest_x] - 0.2,
+                        y[i_nearest_x] / 2,
+                        f"{frac}",
+                        fontsize=12,
+                        color="blue"
+                        if (i_nearest_x == 0 and x_curr < x[0])
+                        or (x[indices_nearest_x[i - 1]] <= x_curr < x[i_nearest_x])
+                        else "red",
+                    )
 
-        plt.savefig(os.path.join(savedir, f"price_ratio_pdf_{ticker}.png"))
+                axes[i_axis].set_title(f"Price divdeded by {window}-MA for {ticker}")
+                axes[i_axis].set_xlabel(f"Price / {window}MA")
+            else:
+                axes[i_axis].set_title(
+                    f"Log of volume divdeded by {window}MA for {ticker}"
+                )
+                axes[i_axis].set_xlabel(f"Log of Volume / {window}MA")
+
+        plt.savefig(os.path.join(savedir, f"pdf_{ticker}.png"))

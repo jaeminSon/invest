@@ -54,12 +54,12 @@ def compute_budge(total_budget: int):
     return {e[0]: e[1] * total_budget for e in pf["weights"]}
 
 
-def price_ratio(price: pd.Series, window: int) -> pd.Series:
-    return (price / price.rolling(window=window).mean()).dropna()
+def divide_by_rolling_ma(series: pd.Series, window: int) -> pd.Series:
+    return (series / series.rolling(window=window).mean()).dropna()
 
 
-def pdf_price_ratio(price: pd.Series, window: int) -> callable:
-    p_ratio = price_ratio(price, window)
+def pdf_ratio(series: pd.Series, window: int) -> callable:
+    p_ratio = divide_by_rolling_ma(series, window)
     return density_function(list(p_ratio))
 
 
@@ -98,12 +98,12 @@ def bet_ratios_martingale(
     max_bet: float = 1.0 / 4,
     n_samples_integral: int = 1000,
 ) -> Dict:
-    p = pdf_price_ratio(price, window)
+    p = pdf_ratio(price, window)
     return bet_ratios_martingale_from_pdf(p, min_bet, max_bet, n_samples_integral)
 
 
 def win_rate(price: pd.Series, window: int) -> float:
-    p_ratio = price_ratio(price, window)
+    p_ratio = divide_by_rolling_ma(price, window)
 
     p = density_function(list(p_ratio))
 

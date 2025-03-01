@@ -9,8 +9,8 @@ from .plot import (
     plot_nasdaq_divided_by_gdp,
     plot_SP500_JOLT,
     plot_return_with_ma,
-    plot_pdf_price_ratio,
-    plot_series_price_ratio,
+    plot_pdf,
+    plot_series,
 )
 
 from .portfolio import warnings, bet_ratios_by_group, compute_budge
@@ -25,8 +25,8 @@ __all__ = [
     "plot_nasdaq_divided_by_m2",
     "plot_nasdaq_divided_by_gdp",
     "plot_SP500_JOLT",
-    "plot_pdf_price_ratio",
-    "plot_series_price_ratio",
+    "plot_pdf",
+    "plot_series",
     "warnings",
     "plot_return_with_ma",
     "bet_ratios_by_group",
