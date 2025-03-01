@@ -341,7 +341,7 @@ def plot_return_with_ma(
     df = download_by_group(group, start_date)
     df_return = yf_return(df)
     df_ma = df_return.rolling(window=window).mean().dropna()
-    df_volume = df["Volume"]
+    df_volume = df["Volume"].loc[df_ma.index]
 
     tickers = df_return.columns
 
