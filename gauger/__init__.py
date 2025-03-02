@@ -15,6 +15,8 @@ from .plot import (
 
 from .portfolio import warnings, bet_ratios_by_group, compute_budge
 
+from .finder import find_undervalued
+
 __all__ = [
     "plot_kelly",
     "plot_correlation",
@@ -31,4 +33,5 @@ __all__ = [
     "plot_return_with_ma",
     "bet_ratios_by_group",
     "compute_budge",
+    "find_undervalued",
 ]

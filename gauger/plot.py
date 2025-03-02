@@ -437,7 +437,7 @@ def plot_series(
     group: str,
     start_date: str,
     end_date: str = None,
-    window: int = 200,
+    window: int = 100,
     savedir: str = "figures",
 ) -> None:
     df = download_by_group(group, start_date, end_date)
@@ -536,7 +536,7 @@ def plot_pdf(
                         else "red",
                     )
 
-                axes[i_axis].set_title(f"Price divdeded by {window}-MA for {ticker}")
+                axes[i_axis].set_title(f"Price divdeded by {window}MA for {ticker}")
                 axes[i_axis].set_xlabel(f"Price / {window}MA")
             else:
                 axes[i_axis].set_title(
