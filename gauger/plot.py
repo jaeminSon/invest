@@ -523,18 +523,18 @@ def plot_pdf(
                         linestyle="--",
                         color="blue",
                     )
-                    axes[i_axis].text(
-                        (x[i_nearest_x] + x[indices_nearest_x[i - 1]]) / 2
-                        if i > 0
-                        else x[i_nearest_x] - 0.2,
-                        y[i_nearest_x] / 2,
-                        f"{frac}",
-                        fontsize=12,
-                        color="blue"
-                        if (i_nearest_x == 0 and x_curr < x[0])
-                        or (x[indices_nearest_x[i - 1]] <= x_curr < x[i_nearest_x])
-                        else "red",
-                    )
+                    if (i_nearest_x == 0 and x_curr < x[0]) or (
+                        x[indices_nearest_x[i - 1]] <= x_curr < x[i_nearest_x]
+                    ):
+                        axes[i_axis].text(
+                            (x[i_nearest_x] + x[indices_nearest_x[i - 1]]) / 2
+                            if i > 0
+                            else x[i_nearest_x] - 0.2,
+                            y[i_nearest_x] / 2,
+                            f"{frac}",
+                            fontsize=12,
+                            color="red",
+                        )
 
                 axes[i_axis].set_title(f"Price divdeded by {window}MA for {ticker}")
                 axes[i_axis].set_xlabel(f"Price / {window}MA")
