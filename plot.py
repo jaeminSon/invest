@@ -85,8 +85,8 @@ if __name__ == "__main__":
     #     path_savefile=os.path.join("figures", "return_leverage.png"),
     # )
 
-    plot_series("leverage", start_date="1900-04-01", savedir="figures")
-    plot_series("basic_index", start_date="1900-04-01", savedir="figures")
+    # plot_series("leverage", start_date="1900-04-01", savedir="figures")
+    # plot_series("basic_index", start_date="1900-04-01", savedir="figures")
 
-    # plot_pdf("leverage", start_date="1900-04-01", savedir="figures")
-    # plot_pdf("basic_index", start_date="1900-04-01", savedir="figures")
+    plot_pdf("leverage", start_date="1900-04-01", savedir="figures")
+    plot_pdf("basic_index", start_date="1900-04-01", savedir="figures")
