@@ -66,7 +66,7 @@ def pdf_ratio(series: pd.Series, window: int) -> callable:
 def bet_ratios_martingale_from_pdf(
     p: callable,
     min_bet: float = 1.0 / 128,
-    max_bet: float = 1.0 / 4,
+    max_bet: float = 1.0 / 2,
     n_samples_integral: int = 1000,
 ) -> Dict:
     n_multiples = np.log2(max_bet / min_bet)
