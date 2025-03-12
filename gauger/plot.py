@@ -512,25 +512,25 @@ def plot_pdf(
             if dtype == "price":
                 bet_ratios = bet_ratios_martingale_from_pdf(p)
                 p_r_sorted = sorted(bet_ratios.keys())
-                indices_nearest_x = [nearest_index(x, p_r) for p_r in p_r_sorted]
+                index_p_r2index_x = [nearest_index(x, p_r) for p_r in p_r_sorted]
                 for i, p_r in enumerate(p_r_sorted):
                     bet = bet_ratios[p_r]
                     frac = Fraction(bet).limit_denominator()
-                    i_nearest_x = indices_nearest_x[i]
+                    i_x = index_p_r2index_x[i]
+                    if i > 0:
+                        prev_i_x = index_p_r2index_x[i - 1]
                     axes[i_axis].plot(
-                        [x[i_nearest_x], x[i_nearest_x]],
-                        [y[i_nearest_x], 0],
+                        [x[i_x], x[i_x]],
+                        [y[i_x], 0],
                         linestyle="--",
                         color="blue",
                     )
-                    if (i_nearest_x == 0 and x_curr < x[0]) or (
-                        x[indices_nearest_x[i - 1]] <= x_curr < x[i_nearest_x]
+                    if (i == 0 and x_curr < x[i_x]) or (
+                        i > 0 and x[prev_i_x] <= x_curr < x[i_x]
                     ):
                         axes[i_axis].text(
-                            (x[i_nearest_x] + x[indices_nearest_x[i - 1]]) / 2
-                            if i > 0
-                            else x[i_nearest_x] - 0.2,
-                            y[i_nearest_x] / 2,
+                            (x[i_x] + x[prev_i_x]) / 2 if i > 0 else x[i_x] - 0.2,
+                            y[i_x] / 2,
                             f"{frac}",
                             fontsize=12,
                             color="red",
