@@ -154,11 +154,10 @@ def bet_ratios_by_group(
                 profit,
                 loss,
             )
-            if bet_ratio > 1e-5:
-                window2tuple[window] = {
-                    "p_win": np.round(p_win, 2),
-                    "bet": np.round(bet_ratio, 2),
-                }
+            window2tuple[window] = {
+                "p_win": np.round(p_win, 2),
+                "bet": np.round(bet_ratio, 2),
+            }
 
         bet_ratios[ticker] = window2tuple
 
