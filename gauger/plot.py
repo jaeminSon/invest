@@ -489,6 +489,8 @@ def plot_pdf(
             elif dtype == "log-volume":
                 x = np.linspace(-2, 2, 1000)
             y = [p(i)[0] for i in x]
+            x = [x[i] for i in range(len(x)) if y[i] > 0.01]
+            y = [y[i] for i in range(len(y)) if y[i] > 0.01]
             index_curr = nearest_index(x, series.iloc[-1])
             x_curr = x[index_curr]
             y_curr = y[index_curr]
