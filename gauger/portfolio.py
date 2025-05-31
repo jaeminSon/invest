@@ -105,9 +105,11 @@ def bet_ratios_martingale(
 def win_rate(price: pd.Series, window: int) -> float:
     p_ratio = divide_by_rolling_ma(price, window)
 
-    p = density_function(list(p_ratio))
-
-    return integral(p, p_ratio.iloc[-1])
+    if len(p_ratio) > 0:
+        p = density_function(list(p_ratio))
+        return integral(p, p_ratio.iloc[-1])
+    else:
+        return 0
 
 
 def win_rates_by_group(
@@ -147,6 +149,9 @@ def bet_ratios_by_group(
     for ticker in win_rates.keys():
         window2tuple = {}
         for window in [20, 50, 100, 200]:
+            if window not in win_rates[ticker]:
+                continue
+
             p_win = win_rates[ticker][window]
 
             bet_ratio = kelly(
