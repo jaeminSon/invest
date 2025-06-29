@@ -11,11 +11,12 @@ from .plot import (
     plot_return_with_ma,
     plot_pdf,
     plot_series,
+    plot_closing_prices_for_tickers
 )
 
 from .portfolio import warnings, bet_ratios_by_group, compute_budge
 
-from .finder import find_undervalued
+from .finder import compute_valuation, sort_valuation
 
 __all__ = [
     "plot_kelly",
@@ -33,5 +34,7 @@ __all__ = [
     "plot_return_with_ma",
     "bet_ratios_by_group",
     "compute_budge",
-    "find_undervalued",
+    "compute_valuation",
+    "sort_valuation",
+    "plot_closing_prices_for_tickers"
 ]

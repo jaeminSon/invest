@@ -547,3 +547,31 @@ def plot_pdf(
                 axes[i_axis].set_xlabel(f"Log of Volume / {window}MA")
 
         plt.savefig(os.path.join(savedir, f"pdf_{ticker}.png"))
+
+
+def plot_closing_prices_for_tickers(
+    tickers: List[str],
+    savedir: str = "figures",
+    start_date: str = "1900-01-01",
+    end_date: str = None,
+) -> None:
+    """
+    Plots the closing price for each ticker in the list from start_date to end_date and saves as '{ticker}.png' in the given directory.
+    """
+    os.makedirs(savedir, exist_ok=True)
+    for ticker in tickers:
+        df = download(ticker, start_date, end_date)
+        if "Close" in df.columns:
+            close = df["Close"][ticker] if isinstance(df["Close"], pd.DataFrame) and ticker in df["Close"].columns else df["Close"]
+        elif ("Close" in df) and (ticker in df["Close"].columns):
+            close = df["Close"][ticker]
+        else:
+            # fallback: try to use the first column if structure is unexpected
+            close = df.iloc[:, 0]
+        plt.close()
+        plt.figure(figsize=(16, 8))
+        close.plot(title=f"{ticker} Closing Price")
+        plt.xlabel("Date")
+        plt.ylabel("Close Price")
+        plt.tight_layout()
+        plt.savefig(os.path.join(savedir, f"{ticker}.png"))
